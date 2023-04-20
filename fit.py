@@ -145,7 +145,7 @@ class MF(pl.LightningModule):
             pred_fake,_ = self.dis_net(fake.detach(), mask=mask, weight=False)
         else:
             mean_field=None
-            pred_real = self.dis_net(batch, mask=mask, weight=False)
+            pred_real,_ = self.dis_net(batch, mask=mask, weight=False)
             pred_fake,_ = self.dis_net(fake.detach(), mask=mask, weight=False)
         pred_fake=pred_fake.reshape(-1)
         pred_real=pred_real.reshape(-1)
