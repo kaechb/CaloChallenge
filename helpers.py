@@ -23,7 +23,6 @@ import torch.nn as nn
 import torch.nn.utils.weight_norm as weight_norm
 from torch.nn import Parameter
 import math
-
 import matplotlib.pyplot as plt
 import os
 import mplhep as hep
@@ -38,18 +37,13 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 # from helpers import mass
 from scipy import stats
 import datetime
-
 import time
 from torch import nn
 from torch.nn import functional as FF
 import traceback
 import os
-
 import pytorch_lightning as pl
 import seaborn as sns
-import PIL
-
-
 import hist
 from hist import Hist
 import matplotlib as mpl

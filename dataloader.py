@@ -10,11 +10,6 @@ class PointCloudDataset(Dataset):
         self.data = np.load(path)
 
         self.points = torch.from_numpy(self.data["points"])
-        if scale:
-            self.scaler_E=BoxCoxTransformer().fit(self.points)
-            self.points[:,0]=self.scaler_E.transform(self.points)
-            self.scaler= StandardScaler().fit(self.points[:,1:])
-            self.points[:,1:]=self.scaler.transform(self.points[:,1:])
         # self.e_in_hat = torch.from_numpy(self.data["e_in_hat"])
         # self.e_sum_hat = torch.from_numpy(self.data["e_sum_hat"])
         # self.n_hat = torch.from_numpy(self.data["n_hat"])
@@ -55,19 +50,14 @@ class BucketBatchSampler(BatchSampler):
 
     def __iter__(self):
         indices = list(range(len(self.data_source)))
-
-
-
         # Sort sequences by length
         indices = sorted(indices, key=lambda x: len(self.data_source[x]))
-
         # Create batches based on the sorted indices
         batches = [indices[i:i + self.batch_size] for i in range(0, len(indices), self.batch_size)]
         if self.shuffle:
             np.random.shuffle(batches)
         if self.drop_last and len(batches[-1]) < self.batch_size:
             batches = batches[:-1]
-
         for batch in batches:
             yield batch
 
@@ -97,7 +87,6 @@ class PointCloudDataloader(pl.LightningDataModule):
         # And adds it to the dataset as variable. The only important thing is that we add noise to zero padded jets
         self.data=torch.load("/beegfs/desy/user/mscham/training_data/calochallange2/pc_train.pt")["E_z_alpha_r_zp_eta_phi"]
         self.val_data=torch.load("/beegfs/desy/user/mscham/training_data/calochallange2/pc_test.pt")["E_z_alpha_r_zp_eta_phi"]
-        temp=torch.tensor([x for sublist in self.data for x in sublist]).reshape(-1,7)
         self.scaler = ScalerBase(
             transfs=[
                 PowerTransformer(method="box-cox", standardize=True),
@@ -117,7 +106,7 @@ class PointCloudDataloader(pl.LightningDataModule):
                             drop_last=True,
                             shuffle=True
                             )
-        self.train_dl = DataLoader(self.data, batch_sampler=self.train_iterator, collate_fn=pad_collate_fn)
+        self.train_dl = DataLoader(self.data, batch_sampler=self.train_iterator, collate_fn=pad_collate_fn,num_workers=1)
 
 
 

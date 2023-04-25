@@ -4,7 +4,6 @@ import traceback
 import numpy as np
 import pytorch_lightning as pl
 import torch
-from jetnet.evaluation import cov_mmd, fpnd, w1efp, w1m, w1p,fpd,get_fpd_kpd_jet_features
 from torch import nn
 from torch.autograd import Variable
 from torch.autograd import grad as torch_grad
@@ -29,18 +28,10 @@ class MF(pl.LightningModule):
         super().__init__()
         self.automatic_optimization = False
         self.opt = config["opt"]
-
-
-
-
         self.lr_g=config["lr_g"]
         self.lr_d=config["lr_d"]
-
-
         self.gan = kwargs["gan"]
-
         self.stop_mean=config["stop_mean"]
-
         self.gen_net = Gen(**config).cuda()
         self.dis_net =  Disc(**config).cuda()
         self.true_fpd=None
@@ -210,7 +201,7 @@ class MF(pl.LightningModule):
 
 
         self._log_dict={}
-        if self.global_step>30000 and self.stop_mean:
+        if self.global_step>100000 and self.stop_mean:
             self.mean_field_loss=False
         if len(batch)==1:
             return None
