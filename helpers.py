@@ -444,7 +444,7 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import PowerTransformer, StandardScaler, MinMaxScaler
 from tqdm import tqdm
 
-os.chdir("/home/mscham/calochallange/")
+
 data_dir = "/home/mscham/fgsim/data/calochallange2/"
 
 
