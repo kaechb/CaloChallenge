@@ -11,9 +11,9 @@ from torch.autograd import grad as torch_grad
 from torch.nn.functional import leaky_relu, sigmoid
 from torch.optim.swa_utils import AveragedModel
 from torch.nn.utils.rnn import pad_sequence
-
+from scipy.stats import wasserstein_distance
 from helpers import CosineWarmupScheduler, center_jets_tensor
-
+rng = np.random.default_rng()
 sys.path.insert(1, "/home/kaechben/plots")
 from helpers import *
 
@@ -128,8 +128,8 @@ class MF(pl.LightningModule):
         return [opt_d, opt_g],[sched_d,sched_g]
 
     def schedulers(self,opt_d,opt_g):
-        sched_d=CosineWarmupScheduler(opt_d, 20, 1000*1000)
-        sched_g=CosineWarmupScheduler(opt_g, 20, 1000*1000)
+        sched_d=CosineWarmupScheduler(opt_d, 20, 2000*1000)
+        sched_g=CosineWarmupScheduler(opt_g, 20, 2000*1000)
         return sched_d,sched_g
 
     def train_disc(self,batch,mask,opt_d):
@@ -204,7 +204,7 @@ class MF(pl.LightningModule):
 
     def training_step(self, batch):
         """simplistic training step, train discriminator and generator"""
-        batch,mask=batch[0],batch[1]
+        batch,mask=batch[0],batch[1].bool()
         if not hasattr(self,"freq"):
             self.freq=1
 
@@ -230,18 +230,51 @@ class MF(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         """This calculates some important metrics on the hold out set (checking for overtraining)"""
         self._log_dict={}
-        batch,mask=batch[0].cpu(),batch[1].cpu()
+        if not hasattr(self,"min_w1p"):
+            self.min_w1p=10
+        batch,mask=batch[0].cpu(),batch[1].cpu().bool()
 
         with torch.no_grad():
             fake = self.sampleandscale(batch.cpu(),mask.cpu())
             scores_real = self.dis_net(batch, mask=mask[:len(mask)], weight=False)[0]
             scores_fake = self.dis_net(fake[:len(mask)], mask=mask[:len(mask)], weight=False )[0]
-        fake[mask]=0 #set masked particles to 0
+            fake[mask]=0 #set masked particles to 0
+            # m_f=mass(fake).detach().numpy()
+            # m_t=mass(batch).detach().numpy()
+            # w1m_=wasserstein_distance(m_f.reshape(-1),m_t.reshape(-1))
+            #print(w1m_)
+            unpadded_fake=fake[~mask]
+            unpadded_batch=batch[~mask]
+            w1ps=[]
+            w1pstd=[]
+            for i in range(unpadded_fake.shape[-1]):
 
+                for _ in range(5):
+                    index=rng.choice(len(batch),size=len(batch)//5)
+                    temp=[]
+                    temp.append(wasserstein_distance(unpadded_fake[index,i].reshape(-1).numpy(),unpadded_batch[index,i].reshape(-1).numpy()))
+                    w1ps.append(np.mean(np.array(temp)))
+                    w1pstd.append(np.std(np.array(temp)))
+
+            w1p_=np.mean(w1ps)
+            w1,w2,w3,w4=w1ps[0],w1ps[1],w1ps[2],w1ps[3]
+            wstd1,wstd2,wstd3,wstd4=w1pstd[0],w1pstd[1],w1pstd[2],w1pstd[3]
+            print("mean: ",w1,w2,w3,w4)
+            print("std: ",wstd1,wstd2,wstd3,wstd4)
+            w1p_weighted=w1*wstd1+w2*wstd2+w3*wstd3+w4*wstd4
+            w1p_weighted/=wstd1+wstd2+wstd3+wstd4
+
+            # self.log("w1m", w1m_, prog_bar=False,on_step=False, logger=True)
+
+            self.log("w1p", w1p_, prog_bar=False,on_step=False, logger=True)
+
+            self.log("weighted_w1p", w1p_weighted, prog_bar=False,on_step=False,on_epoch=True)
         try:
-            self.plot=plotting_point_cloud(batch,fake,mask,step=self.global_step,logger=self.logger,)
-            self.plot.plot_mass(save=None, bins=50)
-            self.plot.plot_scores(scores_real.reshape(-1).numpy(),scores_fake.reshape(-1).numpy(),False,self.global_step)
+            if w1p_<self.min_w1p:
+                self.plot=plotting_point_cloud(batch,fake,mask,step=self.global_step,logger=self.logger,)
+                self.plot.plot_mass(save=None, bins=50)
+                self.plot.plot_scores(scores_real.reshape(-1).numpy(),scores_fake.reshape(-1).numpy(),False,self.global_step)
+                self.min_w1p=w1p_
         except:
             traceback.print_exc()
 

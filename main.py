@@ -62,7 +62,7 @@ def train(config, ckpt=False,logger=None):
     data_module = PointCloudDataloader()
     data_module.setup("validation")
     model.data_module = data_module
-    # callbacks = [ModelCheckpoint(monitor="fpd", save_top_k=3, mode="min",filename="{epoch}-{w1m:.5f}-{fpd:.7f}",every_n_epochs=1,)]
+    callbacks = [ModelCheckpoint(monitor="w1p", save_top_k=3, mode="min",filename="{epoch}-{w1p:.5f}",every_n_epochs=1,)]
     # the sets up the model, with some options that can be set
     trainer = pl.Trainer(
         devices=1,
@@ -70,7 +70,7 @@ def train(config, ckpt=False,logger=None):
         logger=logger,
         log_every_n_steps=100,
         max_epochs=20000,
-        # callbacks=callbacks,
+        callbacks=callbacks,
         # progress_bar_refresh_rate=0,
         val_check_interval=1000,
         check_val_every_n_epoch=None,
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     }
     #set up WandB logger
     logger = WandbLogger(
-        save_dir="/beegfs/desy/user/kaechben/MF",
+        save_dir="/beegfs/desy/user/kaechben/calochallenge",
         sync_tensorboard=False,
         project="CaloChallenge",
     )

@@ -65,8 +65,8 @@ def mass(p, canonical=False):
     px = torch.cos(p[:, :, 1]) * p[:, :, 2]
     py = torch.sin(p[:, :, 1]) * p[:, :, 2]
     pz = torch.sinh(p[:, :, 0]) * p[:, :, 2]
-    E = torch.sqrt(px**2 + py**2 + pz**2)
-    E = E.sum(axis=1) ** 2
+    #E = torch.sqrt(px**2 + py**2 + pz**2)
+    E = p[:,:,3:].sum(axis=1)
 
     p = px.sum(axis=1) ** 2 + py.sum(axis=1) ** 2 + pz.sum(axis=1) ** 2
     m2 = E - p
@@ -439,3 +439,87 @@ class plotting_point_cloud():
         else:
             plt.savefig("plots/scores_"+str(train)+".pdf",format="pdf")
             plt.show()
+# %%
+import os
+import numpy as np
+import torch
+import h5py
+from pathlib import Path
+import joblib
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import PowerTransformer, StandardScaler, MinMaxScaler
+from tqdm import tqdm
+
+os.chdir("/home/mscham/calochallange/")
+data_dir = "/home/mscham/fgsim/data/calochallange2/"
+
+
+# %%
+# creating instance of HighLevelFeatures class to handle geometry based on binning file
+class ScalerBase:
+    def __init__(self, transfs, featurenames: list[str]) -> None:
+        self.transfs = transfs
+        self.featurenames = featurenames
+        self.n_features = len(self.transfs)
+
+        self.scalerpath = Path(data_dir) / "scaler.gz"
+        if self.scalerpath.is_file():
+            self.transfs = joblib.load(self.scalerpath)
+
+    def save_scalar(self, pcs: torch.Tensor):
+        # The features need to be converted to numpy immediatly
+        # otherwise the queuflow afterwards doesnt work
+        assert pcs.dim() == 2
+        assert self.n_features == pcs.shape[1]
+        pcs = pcs.detach().cpu().numpy()
+        self.plot_scaling(pcs)
+
+        assert pcs.shape[1] == self.n_features
+        pcs = np.hstack(
+            [
+                transf.fit_transform(arr.reshape(-1, 1))
+                for arr, transf in zip(pcs.T, self.transfs)
+            ]
+        )
+        self.plot_scaling(pcs, True)
+
+        joblib.dump(self.transfs, self.scalerpath)
+
+    def transform(self, pcs: np.ndarray):
+        assert len(pcs.shape) == 2
+        assert pcs.shape[1] == self.n_features
+        return np.hstack(
+            [
+                transf.transform(arr.reshape(-1, 1))
+                for arr, transf in zip(pcs.T, self.transfs)
+            ]
+        )
+
+    def inverse_transform(self, pcs: torch.Tensor):
+        assert pcs.shape[-1] == self.n_features
+        orgshape = pcs.shape
+        dev = pcs.device
+        pcs = pcs.to("cpu").detach().reshape(-1, self.n_features).numpy()
+
+        t_stacked = np.hstack(
+            [
+                transf.inverse_transform(arr.reshape(-1, 1))
+                for arr, transf in zip(pcs.T, self.transfs)
+            ]
+        )
+        return torch.from_numpy(t_stacked.reshape(*orgshape)).float().to(dev)
+
+    def plot_scaling(self, pcs, post=False):
+        for k, v in zip(self.featurenames, pcs.T):
+            fig, ax = plt.subplots(figsize=(10, 7))
+            ax.hist(v, bins=500)
+            fig.savefig(
+                Path(data_dir) / f"{k}_post.png"
+                if post
+                else Path(data_dir) / f"{k}_pre.png"
+            )
+            plt.close(fig)
+
+
+# %%
+
