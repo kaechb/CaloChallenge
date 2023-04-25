@@ -239,13 +239,13 @@ class MF(pl.LightningModule):
             w1ps=[]
             w1pstd=[]
             for i in range(unpadded_fake.shape[-1]):
+                temp=[]
 
                 for _ in range(5):
                     index=rng.choice(len(batch),size=len(batch)//5)
-                    temp=[]
                     temp.append(wasserstein_distance(unpadded_fake[index,i].reshape(-1).numpy(),unpadded_batch[index,i].reshape(-1).numpy()))
-                    w1ps.append(np.mean(np.array(temp)))
-                    w1pstd.append(np.std(np.array(temp)))
+                w1ps.append(np.mean(np.array(temp)))
+                w1pstd.append(np.std(np.array(temp)))
 
             w1p_=np.mean(w1ps)
             w1,w2,w3,w4=w1ps[0],w1ps[1],w1ps[2],w1ps[3]
