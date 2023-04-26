@@ -62,6 +62,7 @@ def train(config, ckpt=False,logger=None):
     data_module = PointCloudDataloader()
     data_module.setup("validation")
     model.data_module = data_module
+    model.scaler=data_module.scaler
     callbacks = [ModelCheckpoint(monitor="w1p", save_top_k=3, mode="min",filename="{epoch}-{w1p:.5f}",every_n_epochs=1,)]
     # the sets up the model, with some options that can be set
     trainer = pl.Trainer(
