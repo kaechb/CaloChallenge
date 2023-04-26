@@ -230,7 +230,7 @@ class MF(pl.LightningModule):
         batch,mask=batch[0].cpu(),batch[1].cpu().bool()
 
         with torch.no_grad():
-            _,fake = self.sampleandscale(batch.cpu(),mask.cpu(),scale=True)
+            fake = self.sampleandscale(batch.cpu(),mask.cpu(),scale=True)
             scores_real = self.dis_net(batch, mask=mask[:len(mask)], weight=False)[0]
             scores_fake = self.dis_net(fake[:len(mask)], mask=mask[:len(mask)], weight=False )[0]
             fake[mask]=0 #set masked particles to 0
