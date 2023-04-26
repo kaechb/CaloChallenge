@@ -49,6 +49,12 @@ from hist import Hist
 import matplotlib as mpl
 import matplotlib.patches as mpatches
 import torch.nn.functional as F
+
+
+
+from torch.optim import Optimizer
+from torch.optim.lr_scheduler import _LRScheduler
+
 def mass(p, canonical=False):
     if not torch.is_tensor(p):
         p=torch.tensor(p)
@@ -115,6 +121,7 @@ def equal_lr(module, name='weight'):
 
     return module
 
+
 class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):
     def __init__(self, optimizer, warmup, max_iters):
         self.warmup = warmup
@@ -130,29 +137,6 @@ class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):
         if epoch <= self.warmup:
             lr_factor *= epoch * 1.0 / self.warmup
         return lr_factor
-
-
-
-def to_canonical(data, rev=False):
-    n_dim = data.shape[1]
-    p = torch.zeros_like(data)
-    if rev:
-        p[:, :, 0] = torch.arctanh(data[:, :, 2]/ torch.sqrt(data[:, :, 0] ** 2 + data[:, :, 1] ** 2 + data[:, :, 2] ** 2))
-        p[:, :, 1] = torch.atan2(data[:, :, 1], data[:, :, 0])
-        p[:, :, 2] = torch.sqrt(data[:, :, 0] ** 2 + data[:, :, 1] ** 2)
-        return p
-    else:
-
-        p[:, :, 0] = data[:, :, 2] * torch.cos(data[:, :, 1])
-        p[:, :, 1] = data[:, :, 2] * torch.sin(data[:, :, 1])
-        p[:, :, 2] = data[:, :, 2] * torch.sinh(data[:, :, 0])
-        E=p[:,:,0]**2+p[:,:,1]**2+p[:,:,2]**2
-        return torch.cat((p,E.reshape(data.shape[0],data.shape[1],1)),dim=-1)
-
-
-
-from torch.optim import Optimizer
-from torch.optim.lr_scheduler import _LRScheduler
 
 class WeightNormalizedLinear(nn.Module):
 
@@ -214,92 +198,6 @@ def masked_layer_norm(x, mask, eps = 1e-5):
     return ins_norm
 
 
-def center_jets(data):   # assumse [batch, particles, features=[pt,y,phi])
-    etas = jet_etas(data)  # pseudorapdityt
-    phis = jet_phis(data)  # azimuthal angle
-    etas = etas[:,np.newaxis].repeat(repeats=data.shape[1], axis=1)
-    phis = phis[:,np.newaxis].repeat(repeats=data.shape[1], axis=1)
-    mask = data[...,0] > 0   # mask all particles with nonzero pt
-    data[mask,1] -= etas[mask]
-    data[mask,2] -= phis[mask]
-    return data
-
-
-# fixed centering of the jets
-def center_jets_tensor(data):   # assumse [batch, particles, features=[pt,y,phi])
-    etas = jet_etas(data)  # pseudorapdityt
-    phis = jet_phis(data)  # azimuthal angle
-    etas = etas[:,np.newaxis].expand(-1,data.shape[1])
-    phis = phis[:,np.newaxis].expand(-1,data.shape[1])
-    mask = data[...,0] > 0   # mask all particles with nonzero pt
-    data[...,1][mask] -= etas[mask]   # there is a bug here when calculating gradients
-    data[...,2][mask] -= phis[mask]
-    return data
-
-def torch_p4s_from_ptyphi(ptyphi):
-    # get pts, ys, phis
-    #ptyphi = torch.Tensor(ptyphi).float()
-    pts, ys, phis = (ptyphi[...,0,np.newaxis],
-                     ptyphi[...,1,np.newaxis],
-                     ptyphi[...,2,np.newaxis])
-
-    Ets = torch.sqrt(pts**2) #  + ms**2) # everything assumed massless
-    p4s = torch.cat((Ets*torch.cosh(ys), pts*torch.cos(phis),
-                          pts*torch.sin(phis), Ets*torch.sinh(ys)), axis=-1)
-    return p4s
-
-
-def torch_p4s_from_ptyphi(ptyphi):
-    # get pts, ys, phis
-    #ptyphi = torch.Tensor(ptyphi).float()
-    pts, ys, phis = (ptyphi[...,0,np.newaxis],
-                     ptyphi[...,1,np.newaxis],
-                     ptyphi[...,2,np.newaxis])
-
-    Ets = torch.sqrt(pts**2) #  + ms**2) # everything assumed massless
-    p4s = torch.cat((Ets*torch.cosh(ys), pts*torch.cos(phis),
-                          pts*torch.sin(phis), Ets*torch.sinh(ys)), axis=-1)
-    return p4s
-
-
-def jet_etas(jets_tensor):
-    jets_p4s = torch_p4s_from_ptyphi(jets_tensor)
-    etas = torch_etas_from_p4s(jets_p4s.sum(axis=1))
-    return etas
-
-def jet_phis(jets_tensor):
-    jets_p4s = torch_p4s_from_ptyphi(jets_tensor)
-    phis = torch_phis_from_p4s(jets_p4s.sum(axis=1), phi_ref=0)
-    return phis
-
-def torch_etas_from_p4s(p4s):
-    ## PSEUDO-RAPIDITY
-    out = torch.zeros(p4s.shape[:-1],device=p4s.device).float()
-    nz_mask = torch.any(p4s != 0., axis=-1)
-    nz_p4s = p4s[nz_mask]
-    out[nz_mask] = torch.atanh(nz_p4s[...,3]/torch.sqrt(nz_p4s[...,1]**2 + nz_p4s[...,2]**2 + nz_p4s[...,3]**2))
-    return out
-
-
-def torch_phi_fix(phis, phi_ref, copy=False):
-    TWOPI = 2*np.pi
-    diff = (phis - phi_ref)
-    new_phis = torch.copy(phis) if copy else phis
-    new_phis[diff > np.pi] -= TWOPI
-    new_phis[diff < -np.pi] += TWOPI
-    return new_phis
-
-
-def torch_phis_from_p4s(p4s, phi_ref=None, _pts=None, phi_add2pi=True):
-    # get phis
-    phis = torch.atan2(p4s[...,2], p4s[...,1])
-    if phi_add2pi:
-        phis[phis<0] += 2*np.pi
-    # ensure close to reference value
-    if phi_ref is not None:
-        phis = torch_phi_fix(phis, phi_ref, copy=False)
-
-    return phis
 
 class plotting_point_cloud():
     '''This is a class that takes care of  plotting steps in the script,
@@ -311,8 +209,6 @@ class plotting_point_cloud():
         config=the config used for training
         logger=The logger used for tensorboard logging'''
     def __init__(self,true,fake,mask,step=None,logger=None,weight=1):
-
-
         self.test_set=true.numpy()
         self.step=step
         self.fake=fake.numpy()
@@ -369,15 +265,6 @@ class plotting_point_cloud():
                 rp_uncert_draw_type="line",  # line or bar
             )
             ax[0,k].set_xlabel("")
-
-
-            # ax[0,k].patches[1].set_fc("orange")
-            # ax[0,k].patches[1].set_alpha(0.5)
-#                 if quantile and v=="m" and plot_vline:
-#                     ax[0,k].hist(m[m_t<np.quantile(m_t,0.1)],histtype='step',bins=bins,alpha=1,color="red",label="10% quantile gen",hatch="/")
-#                     ax[0,k].vlines(np.quantile(m_t,0.1),0,np.max(h[:]),color="red",label='10% quantile train')
-
-            #ax[0,k].hist(temp,bins=bins,color="orange",alpha=0.5)
             ax[0,k].patches[1].set_fill(True)
             ax[0,k].ticklabel_format(axis="y",style="scientific",scilimits=(-3,3),useMathText=True)
 
@@ -433,19 +320,63 @@ class plotting_point_cloud():
         else:
             plt.savefig("plots/scores_"+str(train)+".pdf",format="pdf")
             plt.show()
-# %%
-import os
-import numpy as np
-import torch
-import h5py
-from pathlib import Path
-import joblib
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import PowerTransformer, StandardScaler, MinMaxScaler
-from tqdm import tqdm
 
+# Custom transformer for logit transformation
+class LogitTransformer(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        pass
 
-data_dir = "/home/mscham/fgsim/data/calochallange2/"
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        return np.log(X / (1 - X))
+    def inverse_transform(self, X, y=None):
+        return 1 / (1 + np.exp(-X))
+# Custom transformer for inverse logit transformation
+class DQ(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        pass
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        X=X+np.random.rand(*X.shape)
+        return X
+    def inverse_transform(self, X, y=None):
+        X=np.floor(X)
+
+        return X
+
+def shower_to_pc(args):
+    shower, E = args
+    shower, E = shower.clone(), E.clone()
+    shower = shower.reshape(num_z, num_alpha, num_r).to_sparse()
+    # assert shower.shape == etas.shape == phis.shape
+    #shower=torch.tensor(showers[0].reshape(45,16,9))
+    shower=shower.to_sparse()
+    pc=torch.cat((shower.values().reshape(-1,1),shower.indices().T.float()),1)
+    # raise
+    # h_energy = shower[idxs]
+    # z, alpha, r = idxs
+    # z=z.float()
+    # alpha=alpha.float()
+    # r=r.float()
+    # hitsperlayer = (shower != 0).float().sum((1, 2))
+    # assert (
+    #     hitsperlayer[hitsperlayer != 0]
+    #     == torch.unique(idxs[0], sorted=True, return_counts=True)[1]
+    # ).all()
+    # zp = z - num_z / 2
+    # theta = torch.arctan(zp / r)
+    # eta = torch.log(torch.tan(theta / 2))
+    # phi = alpha
+    # pc = torch.stack([h_energy, r, alpha, z,]).T
+    return {
+        "Egen": torch.tensor(E).squeeze().clone(),
+        "E_z_alpha_r": pc.clone(),
+    }
 
 
 # %%
@@ -484,7 +415,7 @@ class ScalerBase:
         assert pcs.shape[1] == self.n_features
         return np.hstack(
             [
-                transf.transform(arr.reshape(-1, 1))
+                transf.fit_transform(arr.reshape(-1, 1))
                 for arr, transf in zip(pcs.T, self.transfs)
             ]
         )
@@ -513,7 +444,4 @@ class ScalerBase:
                 else Path(data_dir) / f"{k}_pre.png"
             )
             plt.close(fig)
-
-
 # %%
-

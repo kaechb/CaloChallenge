@@ -71,7 +71,7 @@ class MF(pl.LightningModule):
 
 
 
-    def sampleandscale(self, batch, mask=None):
+    def sampleandscale(self, batch, mask=None,scale=False):
         """Samples from the generator and optionally scales the output back to the original scale"""
 
         with torch.no_grad():
@@ -79,8 +79,12 @@ class MF(pl.LightningModule):
 
         z[mask]*=0 #Since mean field is initialized by sum, we need to set the masked values to zero
         fake=self.gen_net(z,mask=mask, weight=False)
-        fake=fake*(~mask.bool()).unsqueeze(-1).float() #set the masked values to zero
-        return fake
+        if scale:
+            fake_scaled=self.scaler.inverse_transform(fake)
+            fake_scaled=fake_scaled*(~mask.bool()).unsqueeze(-1).float() #set the masked values to zero
+        else:
+            fake=fake*(~mask.bool()).unsqueeze(-1).float() #set the masked values to zero
+            return fake
 
     def _gradient_penalty(self, real_data, generated_data,mask):
         """Calculates the gradient penalty loss for WGAN GP, interpolated events are matched eventwise"""
@@ -230,10 +234,6 @@ class MF(pl.LightningModule):
             scores_real = self.dis_net(batch, mask=mask[:len(mask)], weight=False)[0]
             scores_fake = self.dis_net(fake[:len(mask)], mask=mask[:len(mask)], weight=False )[0]
             fake[mask]=0 #set masked particles to 0
-            # m_f=mass(fake).detach().numpy()
-            # m_t=mass(batch).detach().numpy()
-            # w1m_=wasserstein_distance(m_f.reshape(-1),m_t.reshape(-1))
-            #print(w1m_)
             unpadded_fake=fake[~mask]
             unpadded_batch=batch[~mask]
             w1ps=[]
@@ -254,11 +254,7 @@ class MF(pl.LightningModule):
             print("std: ",wstd1,wstd2,wstd3,wstd4)
             w1p_weighted=w1*wstd1+w2*wstd2+w3*wstd3+w4*wstd4
             w1p_weighted/=wstd1+wstd2+wstd3+wstd4
-
-            # self.log("w1m", w1m_, prog_bar=False,on_step=False, logger=True)
-
             self.log("w1p", w1p_, prog_bar=False,on_step=False, logger=True)
-
             self.log("weighted_w1p", w1p_weighted, prog_bar=False,on_step=False,on_epoch=True)
         try:
             if w1p_<self.min_w1p:
