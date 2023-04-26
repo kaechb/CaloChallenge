@@ -49,8 +49,19 @@ from hist import Hist
 import matplotlib as mpl
 import matplotlib.patches as mpatches
 import torch.nn.functional as F
+import numpy as np
+import torch
+import h5py
+from pathlib import Path
+import joblib
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import PowerTransformer, StandardScaler, MinMaxScaler
+from tqdm import tqdm
 
-
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import PowerTransformer, StandardScaler, MinMaxScaler
 
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
@@ -320,7 +331,11 @@ class plotting_point_cloud():
         else:
             plt.savefig("plots/scores_"+str(train)+".pdf",format="pdf")
             plt.show()
+num_z = 45
+num_alpha = 16
+num_r = 9
 
+data_dir = "/beegfs/desy/user/kaechben/calochallenge/"
 # Custom transformer for logit transformation
 class LogitTransformer(BaseEstimator, TransformerMixin):
     def __init__(self):
