@@ -5,7 +5,7 @@ import pytorch_lightning as pl
 from torch.nn.utils.rnn import pad_sequence
 from helpers import ScalerBase
 from sklearn.preprocessing import StandardScaler, PowerTransformer
-
+import copy
 class BucketBatchSampler(BatchSampler):
     def __init__(self, data_source, batch_size, shuffle=True, drop_last=False):
         self.data_source = data_source
@@ -52,7 +52,7 @@ class PointCloudDataloader(pl.LightningDataModule):
         # This just sets up the dataloader, nothing particularly important. it reads in a csv, calculates mass and reads out the number particles per jet
         # And adds it to the dataset as variable. The only important thing is that we add noise to zero padded jets
         self.data=torch.load("/beegfs/desy/user/mscham/training_data/calochallange2/pc_train.pt")["E_z_alpha_r"]
-        self.val_data=torch.load("/beegfs/desy/user/mscham/training_data/calochallange2/pc_train.pt")["E_z_alpha_r"]
+        #self.val_data=torch.load("/beegfs/desy/user/mscham/training_data/calochallange2/pc_train.pt")["E_z_alpha_r"]
         self.scaler = ScalerBase(
             transfs=[
                 PowerTransformer(method="box-cox", standardize=True),
@@ -63,7 +63,7 @@ class PointCloudDataloader(pl.LightningDataModule):
             ],
             featurenames=["E", "z", "alpha", "r"],
         )
-
+        self.val_data=copy.copy(self.data[:10000])
         self.train_iterator = BucketBatchSampler(
                             self.data,
                             batch_size = 64,
@@ -71,11 +71,14 @@ class PointCloudDataloader(pl.LightningDataModule):
                             shuffle=True
                             )
         self.val_iterator = BucketBatchSampler(
-                            self.data,
+                            self.val_data,
                             batch_size = 10000,
                             drop_last=True,
                             shuffle=True
                             )
+
+
+
         self.train_dl = DataLoader(self.data, batch_sampler=self.train_iterator, collate_fn=pad_collate_fn,num_workers=40)
         self.val_dl = DataLoader(self.val_data, batch_sampler=self.val_iterator ,collate_fn=pad_collate_fn,num_workers=40)
 
