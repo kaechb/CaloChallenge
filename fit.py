@@ -81,7 +81,9 @@ class MF(pl.LightningModule):
         fake=self.gen_net(z,mask=mask, weight=False)
         if scale:
             fake_scaled=self.scaler.inverse_transform(fake)
+
             fake_scaled=fake_scaled*(~mask.bool()).unsqueeze(-1).float() #set the masked values to zero
+            return fake,fake_scaled
         else:
             fake=fake*(~mask.bool()).unsqueeze(-1).float() #set the masked values to zero
             return fake
@@ -230,10 +232,11 @@ class MF(pl.LightningModule):
         batch,mask=batch[0].cpu(),batch[1].cpu().bool()
 
         with torch.no_grad():
-            fake = self.sampleandscale(batch.cpu(),mask.cpu(),scale=True)
-            scores_real = self.dis_net(batch, mask=mask[:len(mask)], weight=False)[0]
-            scores_fake = self.dis_net(fake[:len(mask)], mask=mask[:len(mask)], weight=False )[0]
+            f,fake = self.sampleandscale(batch.cpu(),mask.cpu(),scale=True)
             fake[mask]=0 #set masked particles to 0
+
+            scores_real = self.dis_net(batch, mask=mask[:len(mask)], weight=False)[0]
+            scores_fake = self.dis_net(f, mask=mask, weight=False )[0]
             unpadded_fake=fake[~mask]
             unpadded_batch=batch[~mask]
             w1ps=[]
