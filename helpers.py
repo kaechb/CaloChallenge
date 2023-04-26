@@ -343,7 +343,8 @@ class LogitTransformer(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None):
         return self
-
+    def fit_transform(self, X, y=None):
+        return self.transform(X)
     def transform(self, X, y=None):
         return np.log(X / (1 - X))
     def inverse_transform(self, X, y=None):
@@ -355,7 +356,8 @@ class DQ(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None):
         return self
-
+    def fit_transform(self, X, y=None):
+        return self.transform(X)
     def transform(self, X, y=None):
         X=X+np.random.rand(*X.shape)
         return X
@@ -368,26 +370,9 @@ def shower_to_pc(args):
     shower, E = args
     shower, E = shower.clone(), E.clone()
     shower = shower.reshape(num_z, num_alpha, num_r).to_sparse()
-    # assert shower.shape == etas.shape == phis.shape
-    #shower=torch.tensor(showers[0].reshape(45,16,9))
     shower=shower.to_sparse()
     pc=torch.cat((shower.values().reshape(-1,1),shower.indices().T.float()),1)
-    # raise
-    # h_energy = shower[idxs]
-    # z, alpha, r = idxs
-    # z=z.float()
-    # alpha=alpha.float()
-    # r=r.float()
-    # hitsperlayer = (shower != 0).float().sum((1, 2))
-    # assert (
-    #     hitsperlayer[hitsperlayer != 0]
-    #     == torch.unique(idxs[0], sorted=True, return_counts=True)[1]
-    # ).all()
-    # zp = z - num_z / 2
-    # theta = torch.arctan(zp / r)
-    # eta = torch.log(torch.tan(theta / 2))
-    # phi = alpha
-    # pc = torch.stack([h_energy, r, alpha, z,]).T
+
     return {
         "Egen": torch.tensor(E).squeeze().clone(),
         "E_z_alpha_r": pc.clone(),
@@ -424,13 +409,12 @@ class ScalerBase:
         self.plot_scaling(pcs, True)
 
         joblib.dump(self.transfs, self.scalerpath)
-
     def transform(self, pcs: np.ndarray):
         assert len(pcs.shape) == 2
         assert pcs.shape[1] == self.n_features
         return np.hstack(
             [
-                transf.fit_transform(arr.reshape(-1, 1))
+                transf.transform(arr.reshape(-1, 1))
                 for arr, transf in zip(pcs.T, self.transfs)
             ]
         )
@@ -459,4 +443,3 @@ class ScalerBase:
                 else Path(data_dir) / f"{k}_pre.png"
             )
             plt.close(fig)
-# %%

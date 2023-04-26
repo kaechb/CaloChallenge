@@ -11,7 +11,7 @@ from torch.nn.functional import leaky_relu, sigmoid
 from torch.optim.swa_utils import AveragedModel
 from torch.nn.utils.rnn import pad_sequence
 from scipy.stats import wasserstein_distance
-from helpers import CosineWarmupScheduler, center_jets_tensor
+from helpers import CosineWarmupScheduler
 rng = np.random.default_rng()
 sys.path.insert(1, "/home/kaechben/plots")
 from helpers import *
@@ -68,7 +68,7 @@ class MF(pl.LightningModule):
     def load_datamodule(self, data_module):
         """needed for lightning training to work, it just sets the dataloader for training and validation"""
         self.data_module = data_module
-
+        self.scaler=data_module.scaler
 
 
     def sampleandscale(self, batch, mask=None,scale=False):
