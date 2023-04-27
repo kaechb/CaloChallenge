@@ -219,11 +219,10 @@ class plotting_point_cloud():
         model=the model that is trained, a bit of an overkill as it is only used to access the losses
         config=the config used for training
         logger=The logger used for tensorboard logging'''
-    def __init__(self,true,fake,mask,step=None,logger=None,weight=1):
-        self.test_set=true.numpy()
+    def __init__(self,step=None,logger=None,weight=1):
+
         self.step=step
-        self.fake=fake.numpy()
-        self.mask=mask.numpy()
+
         self.weight=weight
         self.fig_size1=[6.4, 6.4]
         self.fig_size2=[2*6.4, 6.4]
@@ -240,7 +239,7 @@ class plotting_point_cloud():
         else:
             self.summary = None
 
-    def plot_mass(self,save=None,quantile=False,bins=15,plot_vline=False,title="",leg=-1):
+    def plot_ratio(self,h_real,h_fake,weighted,leg=-1):
         #This creates a histogram of the inclusive distributions and calculates the mass of each jet
         #and creates a histogram of that
         #if save, the histograms are logged to tensorboard otherwise they are shown
@@ -250,24 +249,14 @@ class plotting_point_cloud():
         k=0
         fig,ax=plt.subplots(2,4,gridspec_kw={'height_ratios': [4, 1]},figsize=self.fig_size4)
         plt.suptitle("All Hits",fontsize=18)
-
-        for v,name in zip(["eta","phi","pt","E"],[r"$\eta$",r"$\phi$",r"$p_T$",r"$E$"]):
-
-            a=min(np.quantile(self.fake.reshape(-1,4)[:,i],0.001),np.quantile(self.test_set.reshape(-1,4)[:,i],0.001))
-            b=max(np.quantile(self.fake.reshape(-1,4)[:,i],0.999),np.quantile(self.test_set.reshape(-1,4)[:,i],0.999))
-            temp=self.test_set[:i]
-            h=hist.Hist(hist.axis.Regular(bins,a,b))
-            h2=hist.Hist(hist.axis.Regular(bins,a,b))
-            h.fill(self.fake.reshape(-1,4)[self.fake.reshape(-1,4)[:,i]!=0,i])
-            h2.fill(self.test_set.reshape(-1,4)[self.test_set.reshape(-1,4)[:,i]!=0,i])
-            i+=1
-
-
-
-            #hep.cms.label(data=False,lumi=None ,year=None,rlabel="",llabel="Private Work",ax=ax[0] )
-
-            main_ax_artists, sublot_ax_arists = h.plot_ratio(
-                h2,
+        cols=["E","z","alpha","R"]
+        names=[r"$E$",r"$z$",r"$\alpha$",r"$R$"]
+        if weighted:
+            cols=["z","alpha","R"]
+            names=[r"$z$",r"$\alpha$",r"$R$"]
+        for v,name in zip(cols,names):
+            main_ax_artists, sublot_ax_arists = h_real.plot_ratio(
+                h_fake,
                 ax_dict={"main_ax":ax[0,k],"ratio_ax":ax[1,k]},
                 rp_ylabel=r"Ratio",
                 bar_="blue",
@@ -285,14 +274,16 @@ class plotting_point_cloud():
             ax[0,k].patches[1].set_alpha(self.alpha)
 
             ax[1,k].set_ylim(0.25,2)
-            ax[0,k].set_xlim(a,b)
+
             ax[1,k].set_xlabel(name)
-            ax[1,k].set_xlim(a,b)
+
             ax[0,k].set_ylabel("Counts" )
             ax[1,k].set_ylabel("Ratio")
             ax[0,k].patches[0].set_lw(2)
             ax[0,k].get_legend().remove()
             k+=1
+        if not weighted:
+            ax[0,0].set_yscale("log")
         ax[0,leg].legend(loc="best",fontsize=18)
         handles, labels = ax[0,leg].get_legend_handles_labels()
         ax[0,-1].locator_params(nbins=4,axis="x")
@@ -302,14 +293,11 @@ class plotting_point_cloud():
         plt.tight_layout(pad=1)
         # if not save==None:
         #     plt.savefig(save+".pdf",format="pdf")
-        if self.summary:
 
-            plt.tight_layout()
-            self.summary.log_image("inclusive", [fig],self.step)
-            plt.close()
-        else:
-            plt.savefig("plots/inclusive_"+self.p+".pdf",format="pdf")
-            plt.show()
+        plt.tight_layout()
+        self.summary.log_image("{}ratio".format("weighted " if weighted else ""), [fig],self.step)
+        plt.close()
+
     def plot_scores(self,pred_real,pred_fake,train,step):
         fig, ax = plt.subplots()
 
@@ -331,9 +319,7 @@ class plotting_point_cloud():
         else:
             plt.savefig("plots/scores_"+str(train)+".pdf",format="pdf")
             plt.show()
-num_z = 45
-num_alpha = 16
-num_r = 9
+
 
 data_dir = "/beegfs/desy/user/kaechben/calochallenge/"
 # Custom transformer for logit transformation

@@ -48,14 +48,27 @@ class MF(pl.LightningModule):
         self.i=0
         self.g_loss_mean=0.5
         self.d_loss_mean=0.5
-        self.target_real = torch.ones(config["batch_size"],1).cuda()
-        self.target_fake = torch.zeros(config["batch_size"],1).cuda()
+        self.target_real = torch.ones(config["batch_size"],1)
+        self.target_fake = torch.zeros(config["batch_size"],1)
         self.mse=nn.MSELoss()
+        self.names=["E","z","alpha","R"]
 
 
     def on_validation_epoch_start(self, *args, **kwargs):
-        self.dis_net = self.dis_net.cpu()
-        self.gen_net = self.gen_net.cpu()
+        # self.dis_net = self.dis_net.cpu()
+        # self.gen_net = self.gen_net.cpu()
+        self.hists_real=[]
+        self.hists_fake=[]
+        self.weighted_hists_real=[]
+        self.weighted_hists_fake=[]
+        self.hists_real.append(hist.Hist(hist.axis.Regular(100,0,6000)))
+        self.hists_fake.append(hist.Hist(hist.axis.Regular(100,0,6000)))
+        for i,n in  enumerate( [45,16,9]):
+            self.hists_real.append(hist.Hist(hist.axis.Integer(0,n)))
+            self.hists_fake.append(hist.Hist(hist.axis.Integer(0,n)))
+
+            self.weighted_hists_real.append(hist.Hist(hist.axis.Integer(0,n)))
+            self.weighted_hists_fake.append(hist.Hist(hist.axis.Integer(0,n)))
         self.gen_net.eval()
         self.dis_net.train()
 
@@ -82,10 +95,10 @@ class MF(pl.LightningModule):
         if scale:
             fake_scaled=self.scaler.inverse_transform(fake)
 
-            fake_scaled=fake_scaled*(~mask.bool()).unsqueeze(-1).float() #set the masked values to zero
-            return fake,fake_scaled
+            fake_scaled[mask]=0 #set the masked values to zero
+            return fake_scaled
         else:
-            fake=fake*(~mask.bool()).unsqueeze(-1).float() #set the masked values to zero
+            fake[mask]=0 #set the masked values to zero
             return fake
 
     def _gradient_penalty(self, real_data, generated_data,mask):
@@ -95,7 +108,7 @@ class MF(pl.LightningModule):
         alpha = torch.rand(batch_size, 1, 1,device=real_data.device)
         alpha = alpha.expand_as(real_data)
         interpolated = alpha * real_data + (1 - alpha) * generated_data
-        interpolated = Variable(interpolated, requires_grad=True).cuda()
+        interpolated = Variable(interpolated, requires_grad=True)
         # Calculate probability of interpolated examples
         prob_interpolated,_ = self.dis_net(interpolated,mask=mask, weight=False)
         # Calculate gradients of probabilities with respect to examples
@@ -229,42 +242,40 @@ class MF(pl.LightningModule):
         self._log_dict={}
         if not hasattr(self,"min_w1p"):
             self.min_w1p=10
-        batch,mask=batch[0].cpu(),batch[1].cpu().bool()
-
+        batch,mask=batch[0],batch[1].bool()
+        self.w1ps=[]
         with torch.no_grad():
-            f,fake = self.sampleandscale(batch.cpu(),mask.cpu(),scale=True)
+            fake = self.sampleandscale(batch,mask,scale=True)
             fake[mask]=0 #set masked particles to 0
 
-            scores_real = self.dis_net(batch, mask=mask[:len(mask)], weight=False)[0]
-            scores_fake = self.dis_net(f, mask=mask, weight=False )[0]
-            unpadded_fake=fake[~mask]
-            unpadded_batch=batch[~mask]
-            w1ps=[]
-            w1pstd=[]
-            for i in range(unpadded_fake.shape[-1]):
-                temp=[]
+            #scores_real = self.dis_net(batch, mask=mask[:len(mask)], weight=False)[0]
+            #scores_fake = self.dis_net(f, mask=mask, weight=False )[0]
+            unpadded_fake=fake[~mask].cpu().numpy()
+            unpadded_real=batch[~mask].cpu().numpy()
+            for i in range(4):
+                self.hists_fake[i].fill(unpadded_fake[:,i].reshape(-1))
+                self.hists_real[i].fill(unpadded_real[:,i].reshape(-1))
+            for i in range(3):
+                self.weighted_hists_fake[i].fill(unpadded_fake[:,i+1].reshape(-1),weight=unpadded_fake[:,0].reshape(-1))
+                self.weighted_hists_real[i].fill(unpadded_real[:,i+1].reshape(-1),weight=unpadded_real[:,0].reshape(-1))
+            return batch,fake
 
-                for _ in range(5):
-                    index=rng.choice(len(batch),size=len(batch)//5)
-                    temp.append(wasserstein_distance(unpadded_fake[index,i].reshape(-1).numpy(),unpadded_batch[index,i].reshape(-1).numpy()))
-                w1ps.append(np.mean(np.array(temp)))
-                w1pstd.append(np.std(np.array(temp)))
+    def on_validation_epoch_end(self):
+        for i in range(4):
+            cdf_fake=self.hists_fake[i].values().cumsum()
+            cdf_real=self.hists_real[i].values().cumsum()
+            self.log(self.names[i],np.mean(np.abs(cdf_fake-cdf_real)))
+            if i>0:
+                weighted_cdf_fake=self.hists_fake[i].values().cumsum()
+                weightd_cdf_real=self.hists_real[i].values().cumsum()
+                self.log(self.names[i]+"_weighted",np.mean(np.abs(weighted_cdf_fake-weightd_cdf_real)),on_step=False,on_epoch=True)
 
-            w1p_=np.mean(w1ps)
-            w1,w2,w3,w4=w1ps[0],w1ps[1],w1ps[2],w1ps[3]
-            wstd1,wstd2,wstd3,wstd4=w1pstd[0],w1pstd[1],w1pstd[2],w1pstd[3]
-            print("mean: ",w1,w2,w3,w4)
-            print("std: ",wstd1,wstd2,wstd3,wstd4)
-            w1p_weighted=w1*wstd1+w2*wstd2+w3*wstd3+w4*wstd4
-            w1p_weighted/=wstd1+wstd2+wstd3+wstd4
-            self.log("w1p", w1p_, prog_bar=False,on_step=False, logger=True)
-            self.log("weighted_w1p", w1p_weighted, prog_bar=False,on_step=False,on_epoch=True)
         try:
-            if w1p_<self.min_w1p:
-                self.plot=plotting_point_cloud(batch,fake,mask,step=self.global_step,logger=self.logger,)
-                self.plot.plot_mass(save=None, bins=50)
-                self.plot.plot_scores(scores_real.reshape(-1).numpy(),scores_fake.reshape(-1).numpy(),False,self.global_step)
-                self.min_w1p=w1p_
+            # if w1p_<self.min_w1p:
+                self.plot=plotting_point_cloud(step=self.global_step,logger=self.logger,)
+                self.plot.plot_ratio(self.hists_fake[i],self.hists_real[i],weighted="")
+                self.plot.plot_ratio(self.weighted_hists_fake[i],self.weighted_hists_real[i],weighted=True)
+
         except:
             traceback.print_exc()
 

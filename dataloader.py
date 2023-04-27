@@ -75,7 +75,7 @@ class PointCloudDataloader(pl.LightningDataModule):
                             )
         self.val_iterator = BucketBatchSampler(
                             self.val_data,
-                            batch_size = 10000,
+                            batch_size = 500,
                             drop_last=True,
                             shuffle=True
                             )

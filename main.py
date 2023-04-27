@@ -77,9 +77,6 @@ def train(config, ckpt=False,logger=None):
         check_val_every_n_epoch=None,
         num_sanity_val_steps=1,
         enable_progress_bar=False,
-        # reload_dataloaders_every_n_epochs=1,
-        # fast_dev_run=False,
-        # track_grad_norm=1,
         default_root_dir="/beegfs/desy/user/kaechben/calochallenge",
         # reload_dataloaders_every_n_epochs=0,#,config["val_check"] if not config["smart_batching"] else 0,
         #profiler="pytorch"
