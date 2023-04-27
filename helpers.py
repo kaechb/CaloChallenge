@@ -247,7 +247,7 @@ class plotting_point_cloud():
         # where the mass used to condition the flow is in the first 10% percentile of the simulated mass dist
         i=0
         k=0
-        fig,ax=plt.subplots(2,4,gridspec_kw={'height_ratios': [4, 1]},figsize=self.fig_size4)
+        fig,ax=plt.subplots(2,4 if not weighted else 3,gridspec_kw={'height_ratios': [4, 1]},figsize=self.fig_size4)
         plt.suptitle("All Hits",fontsize=18)
         cols=["E","z","alpha","R"]
         names=[r"$E$",r"$z$",r"$\alpha$",r"$R$"]
@@ -255,8 +255,8 @@ class plotting_point_cloud():
             cols=["z","alpha","R"]
             names=[r"$z$",r"$\alpha$",r"$R$"]
         for v,name in zip(cols,names):
-            main_ax_artists, sublot_ax_arists = h_real.plot_ratio(
-                h_fake,
+            main_ax_artists, sublot_ax_arists = h_real[k].plot_ratio(
+                h_fake[k],
                 ax_dict={"main_ax":ax[0,k],"ratio_ax":ax[1,k]},
                 rp_ylabel=r"Ratio",
                 bar_="blue",

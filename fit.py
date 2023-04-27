@@ -63,7 +63,7 @@ class MF(pl.LightningModule):
         self.weighted_hists_fake=[]
         self.hists_real.append(hist.Hist(hist.axis.Regular(100,0,6000)))
         self.hists_fake.append(hist.Hist(hist.axis.Regular(100,0,6000)))
-        for i,n in  enumerate( [45,16,9]):
+        for n in   [45,16,9]:
             self.hists_real.append(hist.Hist(hist.axis.Integer(0,n)))
             self.hists_fake.append(hist.Hist(hist.axis.Integer(0,n)))
 
@@ -261,20 +261,24 @@ class MF(pl.LightningModule):
             return batch,fake
 
     def on_validation_epoch_end(self):
+        w1ps=[]
         for i in range(4):
             cdf_fake=self.hists_fake[i].values().cumsum()
             cdf_real=self.hists_real[i].values().cumsum()
-            self.log(self.names[i],np.mean(np.abs(cdf_fake-cdf_real)))
+            w1p=np.mean(np.abs(cdf_fake-cdf_real))
+            w1ps.append(w1p)
+            self.log(self.names[i],w1p,on_step=False,on_epoch=True)
             if i>0:
                 weighted_cdf_fake=self.hists_fake[i].values().cumsum()
                 weightd_cdf_real=self.hists_real[i].values().cumsum()
                 self.log(self.names[i]+"_weighted",np.mean(np.abs(weighted_cdf_fake-weightd_cdf_real)),on_step=False,on_epoch=True)
+            self.log("w1p",np.mean(w1ps),on_step=False,on_epoch=True)
 
         try:
             # if w1p_<self.min_w1p:
                 self.plot=plotting_point_cloud(step=self.global_step,logger=self.logger,)
-                self.plot.plot_ratio(self.hists_fake[i],self.hists_real[i],weighted="")
-                self.plot.plot_ratio(self.weighted_hists_fake[i],self.weighted_hists_real[i],weighted=True)
+                self.plot.plot_ratio(self.hists_fake,self.hists_real,weighted="")
+                self.plot.plot_ratio(self.weighted_hists_fake,self.weighted_hists_real,weighted=True)
 
         except:
             traceback.print_exc()
