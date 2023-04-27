@@ -77,7 +77,7 @@ def train(config, ckpt=False,logger=None):
         check_val_every_n_epoch=None,
         num_sanity_val_steps=1,
         enable_progress_bar=False,
-        default_root_dir="/beegfs/desy/user/kaechben/calochallenge",
+        default_root_dir="/beegfs/desy/user/{}/calochallenge".format(os.environ["USER"]),
         # reload_dataloaders_every_n_epochs=0,#,config["val_check"] if not config["smart_batching"] else 0,
         #profiler="pytorch"
     )
@@ -121,7 +121,7 @@ if __name__ == "__main__":
     }
     #set up WandB logger
     logger = WandbLogger(
-        save_dir="/beegfs/desy/user/kaechben/calochallenge",
+        save_dir="/beegfs/desy/user/{}/calochallenge".format(os.environ["USER"]),
         sync_tensorboard=False,
         project="CaloChallenge",
     )
@@ -132,6 +132,6 @@ if __name__ == "__main__":
         config.update(**logger.experiment.config)
     print(logger.experiment.dir)
     print("config:", config)
-    #ckpt="/beegfs/desy/user/kaechben/pf_t/linear/mao7f3bq/checkpoints/epoch=5513-w1m=0.00020.ckpt"
+    #ckpt="/beegfs/desy/user/{}/pf_t/linear/mao7f3bq/checkpoints/epoch=5513-w1m=0.00020.ckpt"
     ckpt=None
     train(config, ckpt=ckpt,logger=logger)  # load_ckpt=ckptroot=root,

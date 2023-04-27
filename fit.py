@@ -13,7 +13,6 @@ from torch.nn.utils.rnn import pad_sequence
 from scipy.stats import wasserstein_distance
 from helpers import CosineWarmupScheduler
 rng = np.random.default_rng()
-sys.path.insert(1, "/home/kaechben/plots")
 from helpers import *
 
 # from metrics import *
