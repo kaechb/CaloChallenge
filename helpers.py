@@ -295,7 +295,7 @@ class plotting_point_cloud():
         #     plt.savefig(save+".pdf",format="pdf")
 
         plt.tight_layout()
-        self.summary.log_image("{}ratio".format("weighted " if weighted else ""), [fig],self.step)
+        self.summary.log_image("{}ratio".format("weighted " if weighted else "unweighted "), [fig],self.step)
         plt.close()
 
     def plot_scores(self,pred_real,pred_fake,train,step):

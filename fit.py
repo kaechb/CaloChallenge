@@ -257,7 +257,7 @@ class MF(pl.LightningModule):
             for i in range(3):
                 self.weighted_hists_fake[i].fill(unpadded_fake[:,i+1].reshape(-1),weight=unpadded_fake[:,0].reshape(-1))
                 self.weighted_hists_real[i].fill(unpadded_real[:,i+1].reshape(-1),weight=unpadded_real[:,0].reshape(-1))
-            return batch,fake
+
 
     def on_validation_epoch_end(self):
         w1ps=[]
@@ -276,7 +276,7 @@ class MF(pl.LightningModule):
         try:
             # if w1p_<self.min_w1p:
                 self.plot=plotting_point_cloud(step=self.global_step,logger=self.logger,)
-                self.plot.plot_ratio(self.hists_fake,self.hists_real,weighted="")
+                self.plot.plot_ratio(self.hists_fake,self.hists_real,weighted=False)
                 self.plot.plot_ratio(self.weighted_hists_fake,self.weighted_hists_real,weighted=True)
 
         except:
