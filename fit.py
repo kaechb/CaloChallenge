@@ -264,6 +264,8 @@ class MF(pl.LightningModule):
         for i in range(4):
             cdf_fake=self.hists_fake[i].values().cumsum()
             cdf_real=self.hists_real[i].values().cumsum()
+            cdf_fake/=cdf_fake[-1]
+            cdf_real/=cdf_real[-1]
             w1p=np.mean(np.abs(cdf_fake-cdf_real))
             w1ps.append(w1p)
             self.log(self.names[i],w1p,on_step=False,on_epoch=True)
