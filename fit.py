@@ -51,6 +51,15 @@ class MF(pl.LightningModule):
         self.target_fake = torch.zeros(config["batch_size"],1)
         self.mse=nn.MSELoss()
         self.names=["E","z","alpha","R"]
+        if config["name"]=="middle":
+            self.num_z=45
+            self.num_alpha=16
+            self.num_R=9
+        elif config["name"]=="big":
+            self.num_z=45
+            self.num_alpha=50
+            self.num_R=18
+
 
 
     def on_validation_epoch_start(self, *args, **kwargs):
@@ -62,7 +71,7 @@ class MF(pl.LightningModule):
         self.weighted_hists_fake=[]
         self.hists_real.append(hist.Hist(hist.axis.Regular(100,0,6000)))
         self.hists_fake.append(hist.Hist(hist.axis.Regular(100,0,6000)))
-        for n in   [45,16,9]:
+        for n in   [self.num_z,self.num_alpha,self.num_R]:
             self.hists_real.append(hist.Hist(hist.axis.Integer(0,n)))
             self.hists_fake.append(hist.Hist(hist.axis.Integer(0,n)))
 
@@ -147,8 +156,7 @@ class MF(pl.LightningModule):
             fake = self.sampleandscale(batch, mask)
         opt_d.zero_grad()
         self.dis_net.zero_grad()
-        batch=batch*(~mask.bool()).unsqueeze(-1).float()
-        fake=fake*(~mask.bool()).unsqueeze(-1).float()
+        batch[mask]=0
         if self.mean_field_loss:
             pred_real,mean_field = self.dis_net(batch, mask=mask, weight=False) #mean_field is used for feature matching
             pred_fake,_ = self.dis_net(fake.detach(), mask=mask, weight=False)
@@ -216,8 +224,6 @@ class MF(pl.LightningModule):
         batch,mask=batch[0],batch[1].bool()
         if not hasattr(self,"freq"):
             self.freq=1
-
-
         self._log_dict={}
         if self.global_step>100000 and self.stop_mean:
             self.mean_field_loss=False
@@ -244,7 +250,7 @@ class MF(pl.LightningModule):
         self.w1ps=[]
         with torch.no_grad():
             fake = self.sampleandscale(batch,mask,scale=True)
-            fake[mask]=0 #set masked particles to 0
+
 
             #scores_real = self.dis_net(batch, mask=mask[:len(mask)], weight=False)[0]
             #scores_fake = self.dis_net(f, mask=mask, weight=False )[0]
@@ -273,21 +279,21 @@ class MF(pl.LightningModule):
             self.log(self.names[i],w1p,on_step=False,on_epoch=True)
             if i>0:
                 weighted_cdf_fake=self.hists_fake[i].values().cumsum()
-                weightd_cdf_real=self.hists_real[i].values().cumsum()
+                weighted_cdf_real=self.hists_real[i].values().cumsum()
                 weighted_cdf_fake/=weighted_cdf_fake[-1]
-                weightd_cdf_real/=weightd_cdf_real[-1]
-                weighted_w1p=np.mean(np.abs(weighted_cdf_fake-weightd_cdf_real))
+                weighted_cdf_real/=weighted_cdf_real[-1]
+                weighted_w1p=np.mean(np.abs(weighted_cdf_fake-weighted_cdf_real))
                 weighted_w1ps.append(weighted_w1p)
                 self.log(self.names[i]+"_weighted",weighted_w1p,on_step=False,on_epoch=True)
-            self.log("w1p",np.mean(w1ps),on_step=False,on_epoch=True)
-            self.log("weighted w1p",np.mean(weighted_w1ps),on_step=False,on_epoch=True)
+        self.log("w1p",np.mean(w1ps),on_step=False,on_epoch=True)
+        self.log("weighted w1p",np.mean(weighted_w1ps),on_step=False,on_epoch=True)
 
         try:
             if np.mean(w1ps)<self.min_w1p:
                 self.plot=plotting_point_cloud(step=self.global_step,logger=self.logger,)
                 self.plot.plot_ratio(self.hists_fake,self.hists_real,weighted=False)
                 self.plot.plot_ratio(self.weighted_hists_fake,self.weighted_hists_real,weighted=True)
-                self.min_w1p=w1p
+                self.min_w1p=np.mean(w1ps)
                 self.log("min_w1p",np.mean(w1ps),on_step=False,on_epoch=True)
                 self.log("min_weighted_w1p",np.mean(w1ps),on_step=False,on_epoch=True)
         except:

@@ -59,7 +59,7 @@ def train(config, ckpt=False,logger=None):
     model.lr_g=config["lr_g"]
     model.lr_d=config["lr_g"]
     # Set up the dataloader
-    data_module = PointCloudDataloader()
+    data_module = PointCloudDataloader(name=config["name"])
     data_module.setup("validation")
     model.data_module = data_module
     model.scaler=data_module.scaler
@@ -106,7 +106,6 @@ if __name__ == "__main__":
         "lr_g": 0.0001,
         "max_epochs": 2000,
         "n_dim": 4,
-        "name": "CaloChallenge",
         "num_layers_gen": 8,
         "num_layers": 2,
         "opt": "Adam",
@@ -118,6 +117,7 @@ if __name__ == "__main__":
         "ckpt":None,
         "new_model":True,
         "freq":1,
+        "name":"big"
     }
     #set up WandB logger
     logger = WandbLogger(

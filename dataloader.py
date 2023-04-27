@@ -49,14 +49,15 @@ class PointCloudDataloader(pl.LightningDataModule):
     one thing to note is the custom standard scaler that works on tensors
    """
 
-    def __init__(self):
+    def __init__(self,name):
+        self.name=name
         super().__init__()
 
-    def setup(self, stage ,n=None ):
+    def setup(self, stage ):
         # This just sets up the dataloader, nothing particularly important. it reads in a csv, calculates mass and reads out the number particles per jet
         # And adds it to the dataset as variable. The only important thing is that we add noise to zero padded jets
-        self.data=torch.load("/beegfs/desy/user/kaechben/calochallenge/pc_train.pt")["E_z_alpha_r"]
-        self.val_data=torch.load("/beegfs/desy/user/kaechben/calochallenge/pc_test.pt")["E_z_alpha_r"]
+        self.data=torch.load("/beegfs/desy/user/kaechben/calochallenge/pc_train_{}.pt".format(self.name))["E_z_alpha_r"]
+        self.val_data=torch.load("/beegfs/desy/user/kaechben/calochallenge/pc_test_{}.pt".format(self.name))["E_z_alpha_r"]
         self.scaler= ScalerBase(
             transfs=[
                 PowerTransformer(method="box-cox", standardize=True),
@@ -65,6 +66,7 @@ class PointCloudDataloader(pl.LightningDataModule):
                 Pipeline([('dequantization', DQ()),('minmax_scaler', MinMaxScaler(feature_range=(1e-5, 1-1e-5))),('logit_transformer', LogitTransformer()),("standard_scaler",StandardScaler())])]
                 ,
             featurenames=["E", "z", "alpha", "r"],
+            name=self.name
         )
 
         self.train_iterator = BucketBatchSampler(
@@ -75,7 +77,7 @@ class PointCloudDataloader(pl.LightningDataModule):
                             )
         self.val_iterator = BucketBatchSampler(
                             self.val_data,
-                            batch_size = 500,
+                            batch_size = 64,
                             drop_last=True,
                             shuffle=True
                             )

@@ -365,15 +365,15 @@ def shower_to_pc(args):
     }
 
 
-# %%
+
 # creating instance of HighLevelFeatures class to handle geometry based on binning file
 class ScalerBase:
-    def __init__(self, transfs, featurenames: list[str]) -> None:
+    def __init__(self, transfs, featurenames: list[str],name) -> None:
         self.transfs = transfs
         self.featurenames = featurenames
         self.n_features = len(self.transfs)
 
-        self.scalerpath = Path(data_dir) / "scaler.gz"
+        self.scalerpath = Path(data_dir) / "scaler_{}.gz".format(name)
         if self.scalerpath.is_file():
             self.transfs = joblib.load(self.scalerpath)
 

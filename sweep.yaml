@@ -1,6 +1,6 @@
 program: main.py
 method: random
-name: "letsgo"
+name: "ls and wgan,big"
 metric:
   name: w1m
   goal: minimize
@@ -12,11 +12,11 @@ parameters:
   opt:
     values: ["AdamW"]
   gan:
-    values: ["wgan"]
+    values: ["wgan","ls"]
   ckpt:
     values: [False]
   dropout:
-    values: [.2]
+    values: [0.1,.2]
   lr_d:
     values: [0.0001]
   lr_g:
