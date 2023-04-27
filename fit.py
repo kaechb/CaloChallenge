@@ -272,6 +272,8 @@ class MF(pl.LightningModule):
             if i>0:
                 weighted_cdf_fake=self.hists_fake[i].values().cumsum()
                 weightd_cdf_real=self.hists_real[i].values().cumsum()
+                weighted_cdf_fake/=weighted_cdf_fake[-1]
+                weightd_cdf_real/=weightd_cdf_real[-1]
                 self.log(self.names[i]+"_weighted",np.mean(np.abs(weighted_cdf_fake-weightd_cdf_real)),on_step=False,on_epoch=True)
             self.log("w1p",np.mean(w1ps),on_step=False,on_epoch=True)
 
