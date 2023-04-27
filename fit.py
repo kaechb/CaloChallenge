@@ -239,8 +239,7 @@ class MF(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         """This calculates some important metrics on the hold out set (checking for overtraining)"""
         self._log_dict={}
-        if not hasattr(self,"min_w1p"):
-            self.min_w1p=10
+
         batch,mask=batch[0],batch[1].bool()
         self.w1ps=[]
         with torch.no_grad():
@@ -261,6 +260,9 @@ class MF(pl.LightningModule):
 
     def on_validation_epoch_end(self):
         w1ps=[]
+        weighted_w1ps=[]
+        if not hasattr(self,"min_w1p"):
+            self.min_w1p=10
         for i in range(4):
             cdf_fake=self.hists_fake[i].values().cumsum()
             cdf_real=self.hists_real[i].values().cumsum()
@@ -274,15 +276,20 @@ class MF(pl.LightningModule):
                 weightd_cdf_real=self.hists_real[i].values().cumsum()
                 weighted_cdf_fake/=weighted_cdf_fake[-1]
                 weightd_cdf_real/=weightd_cdf_real[-1]
-                self.log(self.names[i]+"_weighted",np.mean(np.abs(weighted_cdf_fake-weightd_cdf_real)),on_step=False,on_epoch=True)
+                weighted_w1p=np.mean(np.abs(weighted_cdf_fake-weightd_cdf_real))
+                weighted_w1ps.append(weighted_w1p)
+                self.log(self.names[i]+"_weighted",weighted_w1p,on_step=False,on_epoch=True)
             self.log("w1p",np.mean(w1ps),on_step=False,on_epoch=True)
+            self.log("weighted w1p",np.mean(weighted_w1ps),on_step=False,on_epoch=True)
 
         try:
-            # if w1p_<self.min_w1p:
+            if np.mean(w1ps)<self.min_w1p:
                 self.plot=plotting_point_cloud(step=self.global_step,logger=self.logger,)
                 self.plot.plot_ratio(self.hists_fake,self.hists_real,weighted=False)
                 self.plot.plot_ratio(self.weighted_hists_fake,self.weighted_hists_real,weighted=True)
-
+                self.min_w1p=w1p
+                self.log("min_w1p",np.mean(w1ps),on_step=False,on_epoch=True)
+                self.log("min_weighted_w1p",np.mean(w1ps),on_step=False,on_epoch=True)
         except:
             traceback.print_exc()
 
