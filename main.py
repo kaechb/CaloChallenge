@@ -117,7 +117,7 @@ if __name__ == "__main__":
         "ckpt":None,
         "new_model":True,
         "freq":1,
-        "name":"big"
+        "name":"middle"
     }
     #set up WandB logger
     logger = WandbLogger(

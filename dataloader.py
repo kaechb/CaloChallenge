@@ -93,9 +93,10 @@ class PointCloudDataloader(pl.LightningDataModule):
 
 if __name__=="__main__":
 
-    loader=PointCloudDataloader()
+    loader=PointCloudDataloader("big")
     loader.setup("train")
 
     for i in loader.val_dataloader():
-        print(i)
-        break
+        assert (i[0]==i[0]).all()
+    for i in loader.train_dataloader():
+        assert (i[0]==i[0]).all()

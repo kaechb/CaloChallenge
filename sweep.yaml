@@ -22,7 +22,7 @@ parameters:
   lr_g:
     values: [0.0001]
   num_layers_gen:
-    values: [4,8]
+    values: [4,6,8]
   batch_size:
     values: [128]
   l_dim:
@@ -30,15 +30,17 @@ parameters:
   l_dim_gen:
     values: [8,16]
   hidden:
-    values: [32,64,128]
+    values: [32,64,96]
   hidden_gen:
-    values: [32,64,128]
+    values: [32,64,96]
   num_layers:
     values: [2,4]
   heads:
     values: [4,16,32]
   heads_gen:
     values: [16,16,32]
+  name:
+    values: ["big"]
   # lr_d:
   #   values: [0.0001,0.00001]
   # num_layers:

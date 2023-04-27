@@ -182,7 +182,8 @@ class MF(pl.LightningModule):
             self.d_loss_mean=d_loss.detach()*0.01+0.99*self.d_loss_mean
             d_loss+=gp
             self._log_dict["Training/gp"]=gp
-
+        if d_loss!=d_loss:
+            return None
         self.manual_backward(d_loss)
         opt_d.step()
         self._log_dict["Training/lr_d"]=opt_d.param_groups[0]["lr"]
@@ -209,11 +210,14 @@ class MF(pl.LightningModule):
             g_loss=0.5*self.mse(pred,target).mean()
         else:
             g_loss=-pred.mean()
+        if g_loss!=g_loss or mean_field!=mean_field:
+            return None
         if self.g_loss_mean is None:
             self.g_loss_mean=g_loss
         self.g_loss_mean=g_loss.detach()*0.01+0.99*self.g_loss_mean
         if self.mean_field_loss:
             g_loss+=mean_field
+
         self.manual_backward(g_loss)
         opt_g.step()
         self._log_dict["Training/lr_g"]=opt_g.param_groups[0]["lr"]
