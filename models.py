@@ -32,7 +32,7 @@ class Block(nn.Module):
         else:
             x_cls,w = self.attn(x_cls, x, x, key_padding_mask=mask,need_weights=False)
         x_cls = self.act(self.fc1_cls(torch.cat((x_cls,mask.float().sum(1).unsqueeze(1).unsqueeze(1)),dim=-1)))#+x.mean(dim=1).
-        #x_cls = self.act(F.glu(torch.cat((x_cls,self.cond(cond)),dim=-1)))
+        x_cls = self.act(F.glu(torch.cat((x_cls,self.cond(cond)),dim=-1)))
         x=self.act(self.fc1(torch.cat((x,x_cls.expand(-1,x.shape[1],-1)),dim=-1))+res)
         x_cls =x_cls+res_cls
 
