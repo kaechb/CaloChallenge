@@ -23,4 +23,4 @@ module load anaconda3/5.2
 conda activate torch_jet
 cd /home/$USER/CaloChallenge/
 wandb login f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
-wandb agent --count 1 icy27bjb
+wandb agent --count 1 79w3bfvx
