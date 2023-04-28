@@ -10,6 +10,19 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import PowerTransformer, StandardScaler, MinMaxScaler
+from torch.utils.data import Dataset
+
+class CustomDataset(Dataset):
+    def __init__(self, data, E):
+        assert len(data) == len(E), "The lengths of data and E are not equal"
+        self.data = data
+        self.E = E
+
+    def __getitem__(self, index):
+        return self.data[index], self.E[index]
+
+    def __len__(self):
+        return len(self.data)
 class BucketBatchSampler(BatchSampler):
     def __init__(self, data_source, batch_size, shuffle=True, drop_last=False):
         self.data_source = data_source
@@ -28,6 +41,7 @@ class BucketBatchSampler(BatchSampler):
         if self.drop_last and len(batches[-1]) < self.batch_size:
             batches = batches[:-1]
         for batch in batches:
+
             yield batch
 
     def __len__(self):
@@ -37,10 +51,12 @@ class BucketBatchSampler(BatchSampler):
             return (len(self.data_source) + self.batch_size - 1) // self.batch_size
 
 def pad_collate_fn(batch):
+    batch,E=zip(*batch)
     max_len = max(len(sample) for sample in batch)
     padded_batch =pad_sequence(batch, batch_first=True, padding_value=0.0)[:,:,:4].float()
     mask = ~(torch.arange(max_len).expand(len(batch), max_len) < torch.tensor([len(sample) for sample in batch]).unsqueeze(1))
-    return padded_batch,mask
+    E=torch.stack(E)
+    return padded_batch,mask,E
 
 # Pad the sequences using pad_sequence()
 
@@ -56,8 +72,12 @@ class PointCloudDataloader(pl.LightningDataModule):
     def setup(self, stage ):
         # This just sets up the dataloader, nothing particularly important. it reads in a csv, calculates mass and reads out the number particles per jet
         # And adds it to the dataset as variable. The only important thing is that we add noise to zero padded jets
-        self.data=torch.load("/beegfs/desy/user/kaechben/calochallenge/pc_train_{}.pt".format(self.name))["E_z_alpha_r"]
-        self.val_data=torch.load("/beegfs/desy/user/kaechben/calochallenge/pc_test_{}.pt".format(self.name))["E_z_alpha_r"]
+        self.data=torch.load("/beegfs/desy/user/kaechben/calochallenge/pc_train_{}.pt".format(self.name))
+        self.E=self.data["Egen"]
+        self.data=self.data["E_z_alpha_r"]
+        self.val_data=torch.load("/beegfs/desy/user/kaechben/calochallenge/pc_test_{}.pt".format(self.name))
+        self.val_E=self.val_data["Egen"]
+        self.val_data=self.val_data["E_z_alpha_r"]
         self.scaler= ScalerBase(
             transfs=[
                 PowerTransformer(method="box-cox", standardize=True),
@@ -81,8 +101,8 @@ class PointCloudDataloader(pl.LightningDataModule):
                             drop_last=True,
                             shuffle=True
                             )
-        self.train_dl = DataLoader(self.data, batch_sampler=self.train_iterator, collate_fn=pad_collate_fn,num_workers=40)
-        self.val_dl = DataLoader(self.val_data, batch_sampler=self.val_iterator ,collate_fn=pad_collate_fn,num_workers=40)
+        self.train_dl = DataLoader(CustomDataset(self.data,self.E), batch_sampler=self.train_iterator, collate_fn=pad_collate_fn,num_workers=40)
+        self.val_dl = DataLoader(CustomDataset(self.val_data,self.val_E), batch_sampler=self.val_iterator ,collate_fn=pad_collate_fn,num_workers=40)
 
 
     def train_dataloader(self):

@@ -1,6 +1,6 @@
 program: main.py
 method: random
-name: "ls and wgan,big"
+name: "ls and wgan,middle"
 metric:
   name: w1m
   goal: minimize
@@ -40,7 +40,7 @@ parameters:
   heads_gen:
     values: [16,16,32]
   name:
-    values: ["big"]
+    values: ["middle"]
   # lr_d:
   #   values: [0.0001,0.00001]
   # num_layers:

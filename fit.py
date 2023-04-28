@@ -81,8 +81,7 @@ class MF(pl.LightningModule):
         self.dis_net.train()
 
     def on_validation_epoch_end(self, *args, **kwargs):
-        self.gen_net = self.gen_net.to("cuda")
-        self.dis_net = self.dis_net.to("cuda")
+
         self.gen_net.train()
         self.dis_net.train()
 
@@ -92,14 +91,13 @@ class MF(pl.LightningModule):
         self.scaler=data_module.scaler
 
 
-    def sampleandscale(self, batch, mask=None,scale=False):
+    def sampleandscale(self, batch, mask, cond,scale=False):
         """Samples from the generator and optionally scales the output back to the original scale"""
-
+        mask=mask.bool()
         with torch.no_grad():
             z=torch.normal(torch.zeros(batch.shape[0],batch.shape[1],batch.shape[2],device=batch.device),torch.ones(batch.shape[0],batch.shape[1],batch.shape[2],device=batch.device))
-
-        z[mask]*=0 #Since mean field is initialized by sum, we need to set the masked values to zero
-        fake=self.gen_net(z,mask=mask, weight=False)
+        z[mask]=0 #Since mean field is initialized by sum, we need to set the masked values to zero
+        fake=self.gen_net(z,mask=mask,cond=cond, weight=False)
         if scale:
             fake_scaled=self.scaler.inverse_transform(fake)
 
@@ -109,7 +107,7 @@ class MF(pl.LightningModule):
             fake[mask]=0 #set the masked values to zero
             return fake
 
-    def _gradient_penalty(self, real_data, generated_data,mask):
+    def _gradient_penalty(self, real_data, generated_data,mask,cond):
         """Calculates the gradient penalty loss for WGAN GP, interpolated events are matched eventwise"""
         batch_size = real_data.size()[0]
         # Calculate interpolation
@@ -118,7 +116,7 @@ class MF(pl.LightningModule):
         interpolated = alpha * real_data + (1 - alpha) * generated_data
         interpolated = Variable(interpolated, requires_grad=True)
         # Calculate probability of interpolated examples
-        prob_interpolated,_ = self.dis_net(interpolated,mask=mask, weight=False)
+        prob_interpolated,_ = self.dis_net(interpolated,mask=mask,cond=cond, weight=False)
         # Calculate gradients of probabilities with respect to examples
         gradients = torch_grad(outputs=prob_interpolated, inputs=interpolated,
                                grad_outputs=torch.ones_like(prob_interpolated),
@@ -150,20 +148,20 @@ class MF(pl.LightningModule):
         sched_g=CosineWarmupScheduler(opt_g, 20, 2000*1000)
         return sched_d,sched_g
 
-    def train_disc(self,batch,mask,opt_d):
+    def train_disc(self,batch,mask,opt_d,cond):
         """Trains the discriminator"""
         with torch.no_grad():
-            fake = self.sampleandscale(batch, mask)
+            fake = self.sampleandscale(batch=batch, mask=mask,cond=cond)
         opt_d.zero_grad()
         self.dis_net.zero_grad()
         batch[mask]=0
         if self.mean_field_loss:
-            pred_real,mean_field = self.dis_net(batch, mask=mask, weight=False) #mean_field is used for feature matching
-            pred_fake,_ = self.dis_net(fake.detach(), mask=mask, weight=False)
+            pred_real,mean_field = self.dis_net(batch, mask=mask, weight=False,cond=cond) #mean_field is used for feature matching
+            pred_fake,_ = self.dis_net(fake.detach(), mask=mask, weight=False,cond=cond)
         else:
             mean_field=None
-            pred_real,_ = self.dis_net(batch, mask=mask, weight=False)
-            pred_fake,_ = self.dis_net(fake.detach(), mask=mask, weight=False)
+            pred_real,_ = self.dis_net(batch, mask=mask, weight=False,cond=cond)
+            pred_fake,_ = self.dis_net(fake.detach(), mask=mask, weight=False,cond=cond)
         pred_fake=pred_fake.reshape(-1)
         pred_real=pred_real.reshape(-1)
         if self.gan=="ls":
@@ -177,7 +175,7 @@ class MF(pl.LightningModule):
 
             self.d_loss_mean=d_loss.detach()*0.01+0.99*self.d_loss_mean
         else:
-            gp=self._gradient_penalty(batch, fake,mask=mask)
+            gp=self._gradient_penalty(batch, fake,mask=mask,cond=cond)
             d_loss=-pred_real.mean()+pred_fake.mean()
             self.d_loss_mean=d_loss.detach()*0.01+0.99*self.d_loss_mean
             d_loss+=gp
@@ -190,20 +188,21 @@ class MF(pl.LightningModule):
         self._log_dict["Training/d_loss"]=self.d_loss_mean
         return mean_field
 
-    def train_gen(self,batch,mask,opt_g,mean_field=None):
+    def train_gen(self,batch,mask,opt_g,cond,mean_field=None):
         """Trains the generator"""
+
         opt_g.zero_grad()
         self.gen_net.zero_grad()
-        fake= self.sampleandscale(batch, mask=mask)
+        fake= self.sampleandscale(batch=batch, mask=mask,cond=cond)
         if mask is not None:
             fake=fake*(~mask).unsqueeze(-1)
         if mean_field is not None:
-            pred,mean_field_gen = self.dis_net(fake, mask=mask, weight=False)
+            pred,mean_field_gen = self.dis_net(fake, mask=mask, weight=False,cond=cond)
             assert mean_field.shape==mean_field_gen.shape
             mean_field = self.mse(mean_field_gen,mean_field.detach()).mean()
             self._log_dict["Training/mean_field"]= mean_field
         else:
-            pred,_ = self.dis_net(fake, mask=mask, weight=False )
+            pred,_ = self.dis_net(fake, mask=mask, weight=False ,cond=cond)
         pred=pred.reshape(-1)
         if self.gan=="ls":
             target=torch.ones_like(pred)
@@ -225,7 +224,9 @@ class MF(pl.LightningModule):
 
     def training_step(self, batch):
         """simplistic training step, train discriminator and generator"""
-        batch,mask=batch[0],batch[1].bool()
+        batch,mask,cond=batch[0],batch[1].bool(),batch[2]
+        cond=torch.cat((cond.reshape(-1,1),(~mask).float().sum(1).reshape(-1,1)),dim=-1).float()
+
         if not hasattr(self,"freq"):
             self.freq=1
         self._log_dict={}
@@ -237,9 +238,9 @@ class MF(pl.LightningModule):
         opt_d, opt_g= self.optimizers()
         sched_d, sched_g = self.lr_schedulers()
         ### GAN PART
-        mean_field=self.train_disc(batch,mask,opt_d)
+        mean_field=self.train_disc(batch=batch,mask=mask,opt_d=opt_d,cond=cond)
         if self.global_step%(self.freq)==0:
-            self.train_gen(batch,mask,opt_g,mean_field)
+            self.train_gen(batch=batch,mask=mask,opt_g=opt_g,cond=cond,mean_field=mean_field)
             self.i+=1
             if self.i%(100//self.freq)==0:
                 self.logger.log_metrics(self._log_dict, step=self.global_step)
@@ -250,10 +251,11 @@ class MF(pl.LightningModule):
         """This calculates some important metrics on the hold out set (checking for overtraining)"""
         self._log_dict={}
 
-        batch,mask=batch[0],batch[1].bool()
+        batch,mask,cond=batch[0],batch[1].bool(),batch[2]
+        cond=torch.cat((cond.reshape(-1,1),(~mask).float().sum(1).reshape(-1,1)),dim=-1).float()
         self.w1ps=[]
         with torch.no_grad():
-            fake = self.sampleandscale(batch,mask,scale=True)
+            fake = self.sampleandscale(batch=batch,mask=mask,cond=cond,scale=True)
 
 
             #scores_real = self.dis_net(batch, mask=mask[:len(mask)], weight=False)[0]
