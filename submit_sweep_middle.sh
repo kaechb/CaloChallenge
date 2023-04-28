@@ -3,7 +3,7 @@
 #SBATCH --constraint='A100'|'P100'|'V100'|
 #SBATCH --time=72:00:00                           # Maximum time requested
 #SBATCH --nodes=1                          # Number of nodes
-#SBATCH --chdir=/home/kaechben/slurm_calo        # directory must already exist!
+#SBATCH --chdir=/home/kaechben/slurm_calo_middle        # directory must already exist!
 #SBATCH --job-name=hostname
 #SBATCH --output=%j.out               # File to which STDOUT will be written
 #SBATCH --error=%j.err                # File to which STDERR will be written
@@ -23,4 +23,4 @@ module load anaconda3/5.2
 conda activate torch_jet
 cd /home/$USER/CaloChallenge/
 wandb login f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
-wandb agent --count 1 79w3bfvx
+wandb agent --count 1 icy27bjb

@@ -30,10 +30,9 @@ class Block(nn.Module):
         if weight:
             x_cls,w = self.attn(x_cls, x, x, key_padding_mask=mask)
         else:
-            x_cls = self.attn(x_cls, x, x, key_padding_mask=mask)[0]
-            w=None
-        x_cls = self.act(self.fc1_cls(torch.cat((x_cls,mask.float().mean(1).unsqueeze(1).unsqueeze(1)),dim=-1)))#+x.mean(dim=1).
-        x_cls = self.act(F.glu(torch.cat((x_cls,self.cond(cond)),dim=-1)))
+            x_cls,w = self.attn(x_cls, x, x, key_padding_mask=mask,need_weights=False)
+        x_cls = self.act(self.fc1_cls(torch.cat((x_cls,mask.float().sum(1).unsqueeze(1).unsqueeze(1)),dim=-1)))#+x.mean(dim=1).
+        #x_cls = self.act(F.glu(torch.cat((x_cls,self.cond(cond)),dim=-1)))
         x=self.act(self.fc1(torch.cat((x,x_cls.expand(-1,x.shape[1],-1)),dim=-1))+res)
         x_cls =x_cls+res_cls
 
@@ -104,11 +103,11 @@ class Disc(nn.Module):
 if __name__ == "__main__":
     #def count_parameters(model): return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    z = torch.randn(1000, 150, 3)
-    mask = torch.zeros((1000, 150)).bool()
-    cond=torch.cat(((~mask.bool()).float().sum(1).unsqueeze(-1).unsqueeze(-1),torch.randn(1000,1,1)),dim=-1).cuda()
-    x_cls = torch.randn(1000, 1, 6)
-    model =Gen(n_dim=3, l_dim_gen=16, hidden_gen=32, num_layers_gen=8, heads_gen=8, dropout=0.0).cuda()
+    z = torch.randn(256, 4000, 4,device="cuda")
+    mask = torch.zeros((256, 4000),device="cuda").bool()
+    cond=torch.cat(((~mask.bool()).float().sum(1).unsqueeze(-1),torch.randn(256,1,device="cuda")),dim=-1)
+    model =Gen(n_dim=4, l_dim_gen=16, hidden_gen=32, num_layers_gen=8, heads_gen=8, dropout=0.0).cuda()
     print(model(z.cuda(),mask.cuda(),cond.cuda()).std())
-    model = Disc(3, 64, 128, 3, 8,0.1).cuda()
-    print(model(z.cuda(),mask.cuda(),cond=cond,weight=True)[0].std())
+    model = Disc(4, 16, 64, 3, 8,0.1).cuda()
+    z=model(z.cuda(),mask.cuda(),cond=cond,weight=True)[0].mean()
+    z.backward()

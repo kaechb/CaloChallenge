@@ -144,8 +144,8 @@ class MF(pl.LightningModule):
         return [opt_d, opt_g],[sched_d,sched_g]
 
     def schedulers(self,opt_d,opt_g):
-        sched_d=CosineWarmupScheduler(opt_d, 20, 2000*1000)
-        sched_g=CosineWarmupScheduler(opt_g, 20, 2000*1000)
+        sched_d=CosineWarmupScheduler(opt_d, 20, 200*1000)
+        sched_g=CosineWarmupScheduler(opt_g, 20, 200*1000)
         return sched_d,sched_g
 
     def train_disc(self,batch,mask,opt_d,cond):
@@ -164,6 +164,8 @@ class MF(pl.LightningModule):
             pred_fake,_ = self.dis_net(fake.detach(), mask=mask, weight=False,cond=cond)
         pred_fake=pred_fake.reshape(-1)
         pred_real=pred_real.reshape(-1)
+        if (pred_fake!=pred_fake).any() or (pred_real!=pred_real).any():
+                return None
         if self.gan=="ls":
             target_fake=torch.zeros_like(pred_fake)
             target_real=torch.ones_like(pred_real)
@@ -177,11 +179,11 @@ class MF(pl.LightningModule):
         else:
             gp=self._gradient_penalty(batch, fake,mask=mask,cond=cond)
             d_loss=-pred_real.mean()+pred_fake.mean()
+
             self.d_loss_mean=d_loss.detach()*0.01+0.99*self.d_loss_mean
             d_loss+=gp
             self._log_dict["Training/gp"]=gp
-        if d_loss!=d_loss:
-            return None
+
         self.manual_backward(d_loss)
         opt_d.step()
         self._log_dict["Training/lr_d"]=opt_d.param_groups[0]["lr"]
