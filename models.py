@@ -16,7 +16,7 @@ class Block(nn.Module):
         self.fc1 = (WeightNormalizedLinear(hidden+embed_dim, embed_dim)) if weightnorm else nn.Linear(hidden+embed_dim, embed_dim)
         self.fc1_cls = (WeightNormalizedLinear(hidden+1, embed_dim)) if weightnorm else nn.Linear(hidden+1, embed_dim)
 
-        self.cond = nn.Linear(2, embed_dim)
+        self.cond = WeightNormalizedLinear(2, embed_dim)
 
         self.attn = weight_norm(nn.MultiheadAttention(hidden, num_heads, batch_first=True, dropout=dropout),"in_proj_weight")
         self.act = nn.LeakyReLU()
@@ -31,7 +31,7 @@ class Block(nn.Module):
             x_cls,w = self.attn(x_cls, x, x, key_padding_mask=mask)
         else:
             x_cls,w = self.attn(x_cls, x, x, key_padding_mask=mask,need_weights=False)
-        x_cls = self.act(self.fc1_cls(torch.cat((x_cls,mask.float().sum(1).unsqueeze(1).unsqueeze(1)),dim=-1)))#+x.mean(dim=1).
+        x_cls = self.act(self.fc1_cls(torch.cat((x_cls,mask.float().sum(1).unsqueeze(1).unsqueeze(1)/4000),dim=-1)))#+x.mean(dim=1).
         x_cls = self.act(F.glu(torch.cat((x_cls,self.cond(cond)),dim=-1)))
         x=self.act(self.fc1(torch.cat((x,x_cls.expand(-1,x.shape[1],-1)),dim=-1))+res)
         x_cls =x_cls+res_cls
@@ -85,7 +85,7 @@ class Disc(nn.Module):
         ws=[]
         cond=cond.unsqueeze(1)
         x = self.act(self.embbed(x))
-        x_cls = torch.cat((x.mean(1).unsqueeze(1).clone(),cond),dim=-1)# self.cls_token.expand(x.size(0), 1, -1)
+        x_cls = torch.cat(((x.sum(1)/4000).unsqueeze(1).clone(),cond),dim=-1)# self.cls_token.expand(x.size(0), 1, -1)
         x_cls = self.act(self.embbed_cls(x_cls))
         for layer in self.encoder:
             x,x_cls,w = layer(x, x_cls=x_cls, mask=mask,cond=cond,weight=weight)

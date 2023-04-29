@@ -55,7 +55,7 @@ def pad_collate_fn(batch):
     max_len = max(len(sample) for sample in batch)
     padded_batch =pad_sequence(batch, batch_first=True, padding_value=0.0)[:,:,:4].float()
     mask = ~(torch.arange(max_len).expand(len(batch), max_len) < torch.tensor([len(sample) for sample in batch]).unsqueeze(1))
-    E=torch.stack(E)
+    E=torch.stack(E).log()
     return padded_batch,mask,E
 
 # Pad the sequences using pad_sequence()

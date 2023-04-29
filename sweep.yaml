@@ -1,6 +1,6 @@
 program: main.py
 method: random
-name: "search middle"
+name: "search big refined and bigger"
 metric:
   name: w1m
   goal: minimize
@@ -12,37 +12,37 @@ parameters:
   opt:
     values: ["AdamW"]
   batch_size:
-    values: [32,64,128]
+    values: [64]
   gan:
-    values: ["wgan","ls"]
+    values: ["wgan"]
   ckpt:
     values: [False]
   dropout:
-    values: [0.1,.2]
+    values: [0,0.1,.2]
   lr_d:
     values: [0.0001]
   lr_g:
     values: [0.0001]
   num_layers_gen:
-    values: [4,6]
+    values: [4]
   batch_size:
-    values: [128]
+    values: [64,128]
   l_dim:
-    values: [8,16]
+    values: [16]
   l_dim_gen:
-    values: [8,16]
+    values: [16]
   hidden:
-    values: [16,32]
+    values: [32,48]
   hidden_gen:
-    values: [16,32]
+    values: [48,64]
   num_layers:
-    values: [2,4]
+    values: [4]
   heads:
-    values: [4,8,16]
+    values: [4,8]
   heads_gen:
     values: [16,8]
   name:
-    values: ["middle"]
+    values: ["big"]
   # lr_d:
   #   values: [0.0001,0.00001]
   # num_layers:

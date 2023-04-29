@@ -144,8 +144,8 @@ class MF(pl.LightningModule):
         return [opt_d, opt_g],[sched_d,sched_g]
 
     def schedulers(self,opt_d,opt_g):
-        sched_d=CosineWarmupScheduler(opt_d, 20, 200*1000)
-        sched_g=CosineWarmupScheduler(opt_g, 20, 200*1000)
+        sched_d=CosineWarmupScheduler(opt_d, 20, 1000*1000)
+        sched_g=CosineWarmupScheduler(opt_g, 20, 1000*1000)
         return sched_d,sched_g
 
     def train_disc(self,batch,mask,opt_d,cond):
@@ -232,7 +232,7 @@ class MF(pl.LightningModule):
         if not hasattr(self,"freq"):
             self.freq=1
         self._log_dict={}
-        if self.global_step>100000 and self.stop_mean:
+        if self.global_step>300000 and self.stop_mean:
             self.mean_field_loss=False
         if len(batch)==1:
             return None

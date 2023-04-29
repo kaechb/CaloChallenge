@@ -9,7 +9,7 @@
 #SBATCH --error=%j.err                # File to which STDERR will be written
 #SBATCH --mail-type=NONE                       # Type of email notification- BEGIN,END,FAIL,ALL
 
-#
+
 export WANDB_API_KEY=f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
 export WANDB_PROJECT="CaloChallenge"
 export WANDB_ENTITY="kaechben"
@@ -23,4 +23,4 @@ module load anaconda3/5.2
 conda activate torch_jet
 cd /home/$USER/CaloChallenge/
 wandb login f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
-wandb agent --count 1 icy27bjb
+wandb agent --count 1 02c0o2jw
