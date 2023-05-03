@@ -16,7 +16,7 @@ class Block(nn.Module):
         self.fc1 = (WeightNormalizedLinear(hidden+embed_dim, embed_dim)) if weightnorm else nn.Linear(hidden+embed_dim, embed_dim)
         self.fc1_cls = (WeightNormalizedLinear(hidden+1, embed_dim)) if weightnorm else nn.Linear(hidden+1, embed_dim)
 
-        self.cond = WeightNormalizedLinear(2, embed_dim)
+        self.cond = nn.Linear(2, embed_dim)
 
         self.attn = weight_norm(nn.MultiheadAttention(hidden, num_heads, batch_first=True, dropout=dropout),"in_proj_weight")
         self.act = nn.LeakyReLU()
@@ -48,7 +48,8 @@ class Gen(nn.Module):
         self.encoder = nn.ModuleList([Block(embed_dim=l_dim_gen, num_heads=heads_gen,hidden=hidden_gen,weightnorm=False,dropout=0) for i in range(num_layers_gen)])
         self.out = WeightNormalizedLinear(l_dim_gen, n_dim)
         self.act = nn.LeakyReLU()
-
+        self.E1 = nn.Linear(l_dim_gen, l_dim_gen//2)
+        self.E2 = nn.Linear(l_dim_gen//2, 1)
     def forward(self, x,mask,cond,weight=False):
         x = self.act(self.embbed(x))
         cond=cond.unsqueeze(1)
@@ -59,10 +60,11 @@ class Gen(nn.Module):
             x, x_cls, w = layer(x,x_cls=x_cls,mask=mask,cond=cond,weight=weight)
             if weight:
                 ws.append(w)
+            res=x_cls.clone()
         if weight:
-            return self.out(x),ws
+            return self.out(x),ws,self.E2(self.act(self.E1(res)))
         else:
-            return self.out(x)
+            return self.out(x),self.E2(self.act(self.E1(res)))
 
 
 
@@ -78,6 +80,8 @@ class Disc(nn.Module):
         self.act = nn.LeakyReLU()
         self.fc1 = WeightNormalizedLinear(l_dim, hidden)
         self.fc2 = WeightNormalizedLinear(hidden, l_dim)
+        self.E1=WeightNormalizedLinear(l_dim,l_dim//2)
+        self.E2=WeightNormalizedLinear(l_dim//2,1)
         self.ln = nn.LayerNorm(l_dim)
 
 
@@ -90,14 +94,16 @@ class Disc(nn.Module):
         for layer in self.encoder:
             x,x_cls,w = layer(x, x_cls=x_cls, mask=mask,cond=cond,weight=weight)
             res=x_cls.clone()
+            E=x_cls.clone()
             x_cls=(self.act(x_cls))
             if weight:
                 ws.append(w)
+        E=self.E2(self.act(self.E1(E)))
         x_cls = self.act(self.ln(self.fc2(self.act(self.fc1(x_cls)))))
         if weight:
-            return self.out(x_cls),res,ws
+            return self.out(x_cls),res,ws,E
         else:
-            return self.out(x_cls),res
+            return self.out(x_cls),res,E
 
 
 if __name__ == "__main__":

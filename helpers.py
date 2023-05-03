@@ -230,7 +230,7 @@ class plotting_point_cloud():
         self.fig_size4=[4*6.4, 6.4]
         self.alpha=0.3
         mpl.rcParams['lines.linewidth'] = 2
-        font = {"family": "normal", "size": 18}
+        font = { "size": 18}#"family": "normal",
         mpl.rc("font", **font)
         mpl.rc('lines', linewidth=2)
         sns.set_palette("Pastel1")

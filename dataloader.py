@@ -55,18 +55,65 @@ def pad_collate_fn(batch):
     max_len = max(len(sample) for sample in batch)
     padded_batch =pad_sequence(batch, batch_first=True, padding_value=0.0)[:,:,:4].float()
     mask = ~(torch.arange(max_len).expand(len(batch), max_len) < torch.tensor([len(sample) for sample in batch]).unsqueeze(1))
-    E=torch.stack(E).log()
+    E=torch.stack(E).log()-10
     return padded_batch,mask,E
 
 # Pad the sequences using pad_sequence()
 
+
+class BucketBatchSamplerMax(BatchSampler):
+    def __init__(self, data_source, batch_size, max_tokens_per_batch=400000, shuffle=True, drop_last=False):
+        self.data_source = data_source
+
+        self.max_tokens_per_batch = max_tokens_per_batch
+        self.shuffle = shuffle
+        self.drop_last = drop_last
+        self.batch_size=batch_size
+
+    def __iter__(self):
+        indices = list(range(len(self.data_source)))
+
+        if self.shuffle:
+            np.random.shuffle(indices)
+
+        # Sort sequences by length
+        indices = sorted(indices, key=lambda x: len(self.data_source[x]))
+
+        # Create batches based on the total number of tokens per batch
+        batches = []
+        batch = []
+        batch_tokens = 0
+        for idx in indices:
+            sample_len = len(self.data_source[idx])
+            if batch_tokens + sample_len > self.max_tokens_per_batch or len(batch) >= self.batch_size:
+                if len(batch) > 0:
+                    batches.append(batch)
+                batch = []
+                batch_tokens = 0
+
+            batch.append(idx)
+            batch_tokens += sample_len
+        if len(batch) > 0 and not self.drop_last:
+            batches.append(batch)
+        if self.shuffle:
+            np.random.shuffle(batches)
+        for batch in batches:
+            yield batch
+
+    def __len__(self):
+        if self.drop_last:
+            return len(self.data_source) // self.batch_size
+        else:
+            return (len(self.data_source) + self.batch_size - 1) // self.batch_size
 class PointCloudDataloader(pl.LightningDataModule):
     """This is more or less standard boilerplate coded that builds the data loader of the training
     one thing to note is the custom standard scaler that works on tensors
    """
 
-    def __init__(self,name):
+    def __init__(self,name,batch_size,max=False):
         self.name=name
+        self.batch_size=batch_size
+        self.max=max
         super().__init__()
 
     def setup(self, stage ):
@@ -88,21 +135,36 @@ class PointCloudDataloader(pl.LightningDataModule):
             featurenames=["E", "z", "alpha", "r"],
             name=self.name
         )
-
-        self.train_iterator = BucketBatchSampler(
-                            self.data,
-                            batch_size = 64,
-                            drop_last=True,
-                            shuffle=True
-                            )
-        self.val_iterator = BucketBatchSampler(
-                            self.val_data,
-                            batch_size = 64,
-                            drop_last=True,
-                            shuffle=True
-                            )
-        self.train_dl = DataLoader(CustomDataset(self.data,self.E), batch_sampler=self.train_iterator, collate_fn=pad_collate_fn,num_workers=40)
-        self.val_dl = DataLoader(CustomDataset(self.val_data,self.val_E), batch_sampler=self.val_iterator ,collate_fn=pad_collate_fn,num_workers=40)
+        if self.max:
+            self.train_iterator = BucketBatchSamplerMax(
+                                self.data,
+                                batch_size = self.batch_size,
+                                drop_last=True,
+                                max_tokens_per_batch=400000,
+                                shuffle=True
+                                )
+            self.val_iterator = BucketBatchSamplerMax(
+                                self.val_data,
+                                batch_size = self.batch_size,
+                                max_tokens_per_batch=400000,
+                                drop_last=False,
+                                shuffle=True
+                                )
+        else:
+            self.train_iterator = BucketBatchSampler(
+                                self.data,
+                                batch_size = self.batch_size//2,
+                                drop_last=True,
+                                shuffle=True
+                                )
+            self.val_iterator = BucketBatchSampler(
+                                self.val_data,
+                                batch_size = self.batch_size,
+                                drop_last=True,
+                                shuffle=True
+                                )
+        self.train_dl = DataLoader(CustomDataset(self.data,self.E), batch_sampler=self.train_iterator, collate_fn=pad_collate_fn,num_workers=16)
+        self.val_dl = DataLoader(CustomDataset(self.val_data,self.val_E), batch_sampler=self.val_iterator,collate_fn=pad_collate_fn,num_workers=16)
 
 
     def train_dataloader(self):
@@ -113,7 +175,7 @@ class PointCloudDataloader(pl.LightningDataModule):
 
 if __name__=="__main__":
 
-    loader=PointCloudDataloader("big")
+    loader=PointCloudDataloader("big",64,max=False)
     loader.setup("train")
 
     for i in loader.val_dataloader():
