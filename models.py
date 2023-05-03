@@ -11,7 +11,7 @@ from helpers import TPReLU, WeightNormalizedLinear
 class Block(nn.Module):
     def __init__(self, embed_dim, num_heads, hidden,dropout,weightnorm=True):
         super().__init__()
-        self.fc0 = (WeightNormalizedLinear(embed_dim, hidden)) if weightnorm else nn.Linear(embed_dim, hidden)
+        self.fc0 = WeightNormalizedLinear(embed_dim, hidden) if weightnorm else nn.Linear(embed_dim, hidden)
         self.fc0_cls = (WeightNormalizedLinear(embed_dim+2, hidden)) if weightnorm else nn.Linear(embed_dim+2, hidden)
         self.fc1 = (WeightNormalizedLinear(hidden+embed_dim, embed_dim)) if weightnorm else nn.Linear(hidden+embed_dim, embed_dim)
         self.fc1_cls = (WeightNormalizedLinear(hidden+1, embed_dim)) if weightnorm else nn.Linear(hidden+1, embed_dim)
