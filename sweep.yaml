@@ -43,8 +43,6 @@ parameters:
     values: [1]
   max:
     values: [True,False]
-  E_loss_fake:
-    values: [True,False]
   E_loss:
     values: [True,False]
 

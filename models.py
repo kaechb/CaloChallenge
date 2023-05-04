@@ -15,8 +15,6 @@ class Block(nn.Module):
         self.fc0_cls = (WeightNormalizedLinear(embed_dim+2, hidden)) if weightnorm else nn.Linear(embed_dim+2, hidden)
         self.fc1 = (WeightNormalizedLinear(hidden+embed_dim, embed_dim)) if weightnorm else nn.Linear(hidden+embed_dim, embed_dim)
         self.fc1_cls = (WeightNormalizedLinear(hidden+1, embed_dim)) if weightnorm else nn.Linear(hidden+1, embed_dim)
-
-
         self.cond_cls = nn.Linear(1, embed_dim)
         self.attn = weight_norm(nn.MultiheadAttention(hidden, num_heads, batch_first=True, dropout=dropout),"in_proj_weight")
         self.act = nn.LeakyReLU()
@@ -48,8 +46,6 @@ class Gen(nn.Module):
         self.encoder = nn.ModuleList([Block(embed_dim=l_dim_gen, num_heads=heads_gen,hidden=hidden_gen,weightnorm=False,dropout=0) for i in range(num_layers_gen)])
         self.out = WeightNormalizedLinear(l_dim_gen, n_dim)
         self.act = nn.LeakyReLU()
-        self.E1 = nn.Linear(l_dim_gen, l_dim_gen//2)
-        self.E2 = nn.Linear(l_dim_gen//2, 1)
         self.cond = nn.Linear(1, l_dim_gen)
     def forward(self, x,mask,cond,weight=False):
         x = self.act(self.embbed(x))
@@ -64,9 +60,9 @@ class Gen(nn.Module):
             res=x_cls.clone()
         x=F.glu(torch.cat((x,self.cond(cond[:,:,:1]).expand(-1,x.shape[1],-1)),dim=-1))
         if weight:
-            return self.out(x),ws,self.E2(self.act(self.E1(res)))
+            return self.out(x),ws
         else:
-            return self.out(x),self.E2(self.act(self.E1(res)))
+            return self.out(x)
 
 
 
@@ -82,8 +78,6 @@ class Disc(nn.Module):
         self.act = nn.LeakyReLU()
         self.fc1 = WeightNormalizedLinear(l_dim, hidden)
         self.fc2 = WeightNormalizedLinear(hidden, l_dim)
-        self.E1=WeightNormalizedLinear(l_dim,l_dim//2)
-        self.E2=WeightNormalizedLinear(l_dim//2,1)
         self.ln = nn.LayerNorm(l_dim)
 
 
@@ -96,17 +90,15 @@ class Disc(nn.Module):
         for layer in self.encoder:
             x,x_cls,w = layer(x, x_cls=x_cls, mask=mask,cond=cond,weight=weight)
             res=x_cls.clone()
-            E=x_cls.clone()
+
             x_cls=(self.act(x_cls))
             if weight:
                 ws.append(w)
-        E=self.E2(self.act(self.E1(E)))
         x_cls = self.act(self.ln(self.fc2(self.act(self.fc1(x_cls)))))
         if weight:
-            return self.out(x_cls),res,ws,E
+            return self.out(x_cls),res,ws
         else:
-            return self.out(x_cls),res,E
-
+            return self.out(x_cls),res
 
 if __name__ == "__main__":
     #def count_parameters(model): return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -115,8 +107,8 @@ if __name__ == "__main__":
     mask = torch.zeros((256, 40),device="cuda").bool()
     cond=torch.cat(((~mask.bool()).float().sum(1).unsqueeze(-1),torch.randn(256,1,device="cuda")),dim=-1)
     model =Gen(n_dim=4, l_dim_gen=16, hidden_gen=32, num_layers_gen=8, heads_gen=8, dropout=0.0).cuda()
-    x,E=model(z.cuda(),mask.cuda(),cond.cuda())
-    print(x.std(),E.std())
+    x=model(z.cuda(),mask.cuda(),cond.cuda())
+    print(x.std())
     model = Disc(4, 16, 64, 3, 8,0.1).cuda()
-    s,s_cls,w,E=model(z.cuda(),mask.cuda(),cond=cond,weight=True)
-    print(s.std(),s_cls.std(),E.std())
+    s,s_cls,w=model(z.cuda(),mask.cuda(),cond=cond,weight=True)
+    print(s.std(),s_cls.std())

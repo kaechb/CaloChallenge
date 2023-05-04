@@ -63,8 +63,8 @@ class MF(pl.LightningModule):
             self.min_E = 10000
         self.E_loss_mean = 0
         self.E_loss=config["E_loss"]
-        self.E_loss_fake=config["E_loss_fake"]
-        self.E_loss_fake_mean = 0
+        #self.E_loss_fake=config["E_loss_fake"]
+        #self.E_loss_mean = 0
         self.lambda_=config["lambda"]
 
     def on_validation_epoch_start(self, *args, **kwargs):
@@ -100,7 +100,7 @@ class MF(pl.LightningModule):
         with torch.no_grad():
             z = torch.normal(torch.zeros(batch.shape[0], batch.shape[1], batch.shape[2], device=batch.device), torch.ones(batch.shape[0], batch.shape[1], batch.shape[2], device=batch.device))
         z[mask] = 0  # Since mean field is initialized by sum, we need to set the masked values to zero
-        fake, E = self.gen_net(z, mask=mask, cond=cond, weight=False)
+        fake = self.gen_net(z, mask=mask, cond=cond, weight=False)
         fake[:, :, 0] = torch.nn.functional.relu(fake[:, :, 0] - self.min_E) + self.min_E
         if scale:
             fake_scaled = self.scaler.inverse_transform(fake)
@@ -109,7 +109,7 @@ class MF(pl.LightningModule):
             return fake_scaled
         else:
             fake[mask] = 0  # set the masked values to zero
-            return fake, E
+            return fake
 
     def _gradient_penalty(self, real_data, generated_data, mask, cond):
         """Calculates the gradient penalty loss for WGAN GP, interpolated events are matched eventwise"""
@@ -120,7 +120,7 @@ class MF(pl.LightningModule):
         interpolated = alpha * real_data + (1 - alpha) * generated_data
         interpolated = Variable(interpolated, requires_grad=True)
         # Calculate probability of interpolated examples
-        prob_interpolated, _, _ = self.dis_net(interpolated, mask=mask, cond=cond, weight=False)
+        prob_interpolated, _ = self.dis_net(interpolated, mask=mask, cond=cond, weight=False)
         # Calculate gradients of probabilities with respect to examples
         gradients = torch_grad(outputs=prob_interpolated, inputs=interpolated, grad_outputs=torch.ones_like(prob_interpolated), create_graph=True, retain_graph=True)[0]
         # Gradients have shape (batch_size, num_particles, featzres),
@@ -158,12 +158,12 @@ class MF(pl.LightningModule):
         self.dis_net.zero_grad()
         batch[mask] = 0
         if self.mean_field_loss:
-            pred_real, mean_field, E = self.dis_net(batch, mask=mask, weight=False, cond=cond)  # mean_field is used for feature matching
-            pred_fake, _, Efake = self.dis_net(fake.detach(), mask=mask, weight=False, cond=cond)
+            pred_real, mean_field = self.dis_net(batch, mask=mask, weight=False, cond=cond)  # mean_field is used for feature matching
+            pred_fake, _ = self.dis_net(fake.detach(), mask=mask, weight=False, cond=cond)
         else:
             mean_field = None
-            pred_real, _, E = self.dis_net(batch, mask=mask, weight=False, cond=cond)
-            pred_fake, _, Efake = self.dis_net(fake.detach(), mask=mask, weight=False, cond=cond)
+            pred_real, _ = self.dis_net(batch, mask=mask, weight=False, cond=cond)
+            pred_fake, _ = self.dis_net(fake.detach(), mask=mask, weight=False, cond=cond)
         pred_fake = pred_fake.reshape(-1)
         pred_real = pred_real.reshape(-1)
         if (pred_fake != pred_fake).any() or (pred_real != pred_real).any():
@@ -185,11 +185,11 @@ class MF(pl.LightningModule):
             self.d_loss_mean = d_loss.detach() * 0.01 + 0.99 * self.d_loss_mean
             d_loss += gp
             self._log_dict["Training/gp"] = gp
-        if self.E_loss:
-            E_loss = self.lambda_ * self.mse(E.reshape(-1), cond[:, 0].reshape(-1))# + self.mse(Efake.reshape(-1), cond[:, 0].reshape(-1))
-            self.E_loss_mean = self.E_loss_mean * 0.99 + E_loss.detach().item()
-            self._log_dict["Training/E_loss"] = self.E_loss_mean
-            d_loss += E_loss
+        #if self.E_loss:
+            #E_loss = self.lambda_ * self.mse(E.reshape(-1), cond[:, 0].reshape(-1))# + self.mse(Efake.reshape(-1), cond[:, 0].reshape(-1))
+            #self.E_loss_mean = self.E_loss_mean * 0.99 + E_loss.detach().item()
+            #self._log_dict["Training/E_loss"] = self.E_loss_mean
+            #d_loss += E_loss
         self.manual_backward(d_loss)
         opt_d.step()
         self._log_dict["Training/lr_d"] = opt_d.param_groups[0]["lr"]
@@ -200,16 +200,16 @@ class MF(pl.LightningModule):
         """Trains the generator"""
         opt_g.zero_grad()
         self.gen_net.zero_grad()
-        fake, E = self.sampleandscale(batch=batch, mask=mask, cond=cond)
+        fake = self.sampleandscale(batch=batch, mask=mask, cond=cond)
         if mask is not None:
             fake = fake * (~mask).unsqueeze(-1)
         if mean_field is not None:
-            pred, mean_field_gen, Efake = self.dis_net(fake, mask=mask, weight=False, cond=cond)
+            pred, mean_field_gen = self.dis_net(fake, mask=mask, weight=False, cond=cond)
             assert mean_field.shape == mean_field_gen.shape
             mean_field = self.mse(mean_field_gen, mean_field.detach()).mean()
             self._log_dict["Training/mean_field"] = mean_field
         else:
-            pred, _, Efake = self.dis_net(fake, mask=mask, weight=False, cond=cond)
+            pred = self.dis_net(fake, mask=mask, weight=False, cond=cond)
         pred = pred.reshape(-1)
         if self.gan == "ls":
             target = torch.ones_like(pred)
@@ -224,9 +224,9 @@ class MF(pl.LightningModule):
         if self.mean_field_loss:
             g_loss += mean_field
         if self.E_loss_fake:
-            E_loss = self.lambda_ * self.mse(E.reshape(-1), cond[:, 0].reshape(-1))
-            self.E_loss_fake_mean = self.E_loss_fake_mean * 0.99 + E_loss.detach().item()
-            self._log_dict["Training/E_loss_fake"] = self.E_loss_fake_mean
+            E_loss = self.lambda_ * self.mse(fake[:,:,0].sum(1).reshape(-1)/cond[:,0], batch[:,:,0].sum(1).reshape(-1)/cond[:, 0])
+            self.E_loss_mean = self.E_loss_mean * 0.99 + E_loss.detach().item()
+            self._log_dict["Training/E_loss_fake"] = self.E_loss_mean
             g_loss += E_loss
         self.manual_backward(g_loss)
         opt_g.step()

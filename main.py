@@ -100,7 +100,7 @@ if __name__ == "__main__":
         "part_increase": 10,
         "dropout_gen": 0,
         "dropout": 0.1,
-        "gan": "ls",
+        "gan": "wgan",
         "heads": 2,
         "heads_gen": 16,
         "hidden_gen": 64,
@@ -114,19 +114,15 @@ if __name__ == "__main__":
         "num_layers_gen": 8,
         "num_layers": 2,
         "opt": "Adam",
-        "checkpoint":True,
         "mean_field_loss":True,
         "act": "leaky",
         "stop_mean":True,
-        "mass":False,
         "ckpt":None,
-        "new_model":True,
         "freq":1,
         "name":"middle",
         "max":False,
         "lambda":0.1,
         "E_loss":True,
-        "E_loss_fake":True,
     }
     #set up WandB logger
     logger = WandbLogger(
