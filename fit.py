@@ -27,7 +27,7 @@ class MF(pl.LightningModule):
         super().__init__()
         self.automatic_optimization = False
         self.opt = config["opt"]
-        self.lr_g = config["lr_g"]
+        self.lr_g = config["lr_d"]
         self.lr_d = config["lr_d"]
         self.gan = kwargs["gan"]
         self.stop_mean = config["stop_mean"]
