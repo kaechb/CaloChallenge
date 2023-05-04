@@ -63,7 +63,7 @@ class MF(pl.LightningModule):
             self.min_E = 10000
         self.E_loss_mean = 0
         self.E_loss=config["E_loss"]
-        #self.E_loss_fake=config["E_loss_fake"]
+        #self.E_loss=config["E_loss"]
         #self.E_loss_mean = 0
         self.lambda_=config["lambda"]
 
@@ -153,7 +153,7 @@ class MF(pl.LightningModule):
     def train_disc(self, batch, mask, opt_d, cond):
         """Trains the discriminator"""
         with torch.no_grad():
-            fake, _ = self.sampleandscale(batch=batch, mask=mask, cond=cond)
+            fake= self.sampleandscale(batch=batch, mask=mask, cond=cond)
         opt_d.zero_grad()
         self.dis_net.zero_grad()
         batch[mask] = 0
@@ -223,10 +223,10 @@ class MF(pl.LightningModule):
         self.g_loss_mean = g_loss.detach() * 0.01 + 0.99 * self.g_loss_mean
         if self.mean_field_loss:
             g_loss += mean_field
-        if self.E_loss_fake:
+        if self.E_loss:
             E_loss = self.lambda_ * self.mse(fake[:,:,0].sum(1).reshape(-1)/cond[:,0], batch[:,:,0].sum(1).reshape(-1)/cond[:, 0])
             self.E_loss_mean = self.E_loss_mean * 0.99 + E_loss.detach().item()
-            self._log_dict["Training/E_loss_fake"] = self.E_loss_mean
+            self._log_dict["Training/E_loss"] = self.E_loss_mean
             g_loss += E_loss
         self.manual_backward(g_loss)
         opt_g.step()
