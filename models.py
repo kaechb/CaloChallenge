@@ -16,8 +16,8 @@ class Block(nn.Module):
         self.fc1 = (WeightNormalizedLinear(hidden+embed_dim, embed_dim)) if weightnorm else nn.Linear(hidden+embed_dim, embed_dim)
         self.fc1_cls = (WeightNormalizedLinear(hidden+1, embed_dim)) if weightnorm else nn.Linear(hidden+1, embed_dim)
 
-        self.cond = nn.Linear(2, embed_dim)
 
+        self.cond_cls = nn.Linear(1, embed_dim)
         self.attn = weight_norm(nn.MultiheadAttention(hidden, num_heads, batch_first=True, dropout=dropout),"in_proj_weight")
         self.act = nn.LeakyReLU()
         self.ln = nn.LayerNorm(hidden)
@@ -32,10 +32,10 @@ class Block(nn.Module):
         else:
             x_cls,w = self.attn(x_cls, x, x, key_padding_mask=mask,need_weights=False)
         x_cls = self.act(self.fc1_cls(torch.cat((x_cls,mask.float().sum(1).unsqueeze(1).unsqueeze(1)/4000),dim=-1)))#+x.mean(dim=1).
-        x_cls = self.act(F.glu(torch.cat((x_cls,self.cond(cond)),dim=-1)))
+        x_cls = self.act(F.glu(torch.cat((x_cls,self.cond_cls(cond[:,:,:1])),dim=-1)))
         x=self.act(self.fc1(torch.cat((x,x_cls.expand(-1,x.shape[1],-1)),dim=-1))+res)
         x_cls =x_cls+res_cls
-
+        #x=F.glu(torch.cat((x,self.cond(cond[:,:,:1]).expand(-1,x.shape[1],-1)),dim=-1))
         return x,x_cls,w
 
 
@@ -50,6 +50,7 @@ class Gen(nn.Module):
         self.act = nn.LeakyReLU()
         self.E1 = nn.Linear(l_dim_gen, l_dim_gen//2)
         self.E2 = nn.Linear(l_dim_gen//2, 1)
+        self.cond = nn.Linear(1, l_dim_gen)
     def forward(self, x,mask,cond,weight=False):
         x = self.act(self.embbed(x))
         cond=cond.unsqueeze(1)
@@ -61,6 +62,7 @@ class Gen(nn.Module):
             if weight:
                 ws.append(w)
             res=x_cls.clone()
+        x=F.glu(torch.cat((x,self.cond(cond[:,:,:1]).expand(-1,x.shape[1],-1)),dim=-1))
         if weight:
             return self.out(x),ws,self.E2(self.act(self.E1(res)))
         else:
@@ -109,11 +111,12 @@ class Disc(nn.Module):
 if __name__ == "__main__":
     #def count_parameters(model): return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    z = torch.randn(256, 4000, 4,device="cuda")
-    mask = torch.zeros((256, 4000),device="cuda").bool()
+    z = torch.randn(256, 40, 4,device="cuda")
+    mask = torch.zeros((256, 40),device="cuda").bool()
     cond=torch.cat(((~mask.bool()).float().sum(1).unsqueeze(-1),torch.randn(256,1,device="cuda")),dim=-1)
     model =Gen(n_dim=4, l_dim_gen=16, hidden_gen=32, num_layers_gen=8, heads_gen=8, dropout=0.0).cuda()
-    print(model(z.cuda(),mask.cuda(),cond.cuda()).std())
+    x,E=model(z.cuda(),mask.cuda(),cond.cuda())
+    print(x.std(),E.std())
     model = Disc(4, 16, 64, 3, 8,0.1).cuda()
-    z=model(z.cuda(),mask.cuda(),cond=cond,weight=True)[0].mean()
-    z.backward()
+    s,s_cls,w,E=model(z.cuda(),mask.cuda(),cond=cond,weight=True)
+    print(s.std(),s_cls.std(),E.std())

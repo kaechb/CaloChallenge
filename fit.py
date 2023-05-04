@@ -62,6 +62,8 @@ class MF(pl.LightningModule):
         if not hasattr(self, "min_E"):
             self.min_E = 10000
         self.E_loss_mean = 0
+        self.E_loss=config["E_loss"]
+        self.E_loss_fake=config["E_loss_fake"]
         self.E_loss_fake_mean = 0
         self.lambda_=config["lambda"]
 
@@ -183,10 +185,11 @@ class MF(pl.LightningModule):
             self.d_loss_mean = d_loss.detach() * 0.01 + 0.99 * self.d_loss_mean
             d_loss += gp
             self._log_dict["Training/gp"] = gp
-        E_loss = self.lambda_ * self.mse(E.reshape(-1), cond[:, 0].reshape(-1)) + self.mse(Efake.reshape(-1), cond[:, 0].reshape(-1))
-        self.E_loss_mean = self.E_loss_mean * 0.99 + E_loss.detach().item()
-        self._log_dict["Training/E_loss"] = self.E_loss_mean
-        d_loss += E_loss
+        if self.E_loss:
+            E_loss = self.lambda_ * self.mse(E.reshape(-1), cond[:, 0].reshape(-1))# + self.mse(Efake.reshape(-1), cond[:, 0].reshape(-1))
+            self.E_loss_mean = self.E_loss_mean * 0.99 + E_loss.detach().item()
+            self._log_dict["Training/E_loss"] = self.E_loss_mean
+            d_loss += E_loss
         self.manual_backward(d_loss)
         opt_d.step()
         self._log_dict["Training/lr_d"] = opt_d.param_groups[0]["lr"]
@@ -220,9 +223,11 @@ class MF(pl.LightningModule):
         self.g_loss_mean = g_loss.detach() * 0.01 + 0.99 * self.g_loss_mean
         if self.mean_field_loss:
             g_loss += mean_field
-        E_loss = self.lambda_ * self.mse(E.reshape(-1), cond[:, 0].reshape(-1))
-        self.E_loss_fake_mean = self.E_loss_fake_mean * 0.99 + E_loss.detach().item()
-        self._log_dict["Training/E_loss_fake"] = self.E_loss_fake_mean
+        if self.E_loss_fake:
+            E_loss = self.lambda_ * self.mse(E.reshape(-1), cond[:, 0].reshape(-1))
+            self.E_loss_fake_mean = self.E_loss_fake_mean * 0.99 + E_loss.detach().item()
+            self._log_dict["Training/E_loss_fake"] = self.E_loss_fake_mean
+            g_loss += E_loss
         self.manual_backward(g_loss)
         opt_g.step()
 
