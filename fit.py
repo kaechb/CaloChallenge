@@ -67,6 +67,7 @@ class MF(pl.LightningModule):
         #self.E_loss_mean = 0
         self.lambda_=config["lambda"]
 
+
     def on_validation_epoch_start(self, *args, **kwargs):
         # self.dis_net = self.dis_net.cpu()
         # self.gen_net = self.gen_net.cpu()
@@ -93,6 +94,11 @@ class MF(pl.LightningModule):
         """needed for lightning training to work, it just sets the dataloader for training and validation"""
         self.data_module = data_module
         self.scaler = data_module.scaler
+        self.power_lambda=self.scaler.transfs[0].lambdas[0]
+        self.mean=self.scaler.transfs[0]._scaler.mean_[0]
+        self.scale=self.scaler.transfs[0]._scaler.scale_[0]
+
+
 
     def sampleandscale(self, batch, mask, cond, scale=False):
         """Samples from the generator and optionally scales the output back to the original scale"""
@@ -224,9 +230,11 @@ class MF(pl.LightningModule):
         if self.mean_field_loss:
             g_loss += mean_field
         if self.E_loss:
-            E_loss = self.lambda_ * self.mse(fake[:,:,0].sum(1).reshape(-1)/cond[:,0], batch[:,:,0].sum(1).reshape(-1)/cond[:, 0])
+            response_fake=(((fake[:,:,0]*sqrt(self.std)+self.mean)*self.power_lambda+1)**(1/self.power_lambda)).sum(1).reshape(-1)/(cond[:,0]+10).exp()
+            response_real=(((batch[:,:,0]*sqrt(self.std)+self.mean)*self.power_lambda+1)**(1/self.power_lambda)).sum(1).reshape(-1)/(cond[:,0]+10).exp()
+            E_loss =  self.mse(response_real,response_fake)
             self.E_loss_mean = self.E_loss_mean * 0.99 + E_loss.detach().item()
-            self._log_dict["Training/E_loss"] = self.E_loss_mean
+            self._log_dict["Training/E_loss"] =self.lambda_ * self.E_loss_mean
             g_loss += E_loss
         self.manual_backward(g_loss)
         opt_g.step()
