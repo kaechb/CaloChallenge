@@ -50,6 +50,14 @@ class BucketBatchSampler(BatchSampler):
         else:
             return (len(self.data_source) + self.batch_size - 1) // self.batch_size
 
+def pad_collate_fn_scaled(batch):
+    batch,E=zip(*batch)
+    max_len = max(len(sample) for sample in batch)
+    padded_batch =pad_sequence(batch, batch_first=True, padding_value=0.0)[:,:,:4].float()
+    mask = ~(torch.arange(max_len).expand(len(batch), max_len) < torch.tensor([len(sample) for sample in batch]).unsqueeze(1))
+    E=torch.from_numpy(np.array(E)).float().reshape(-1)
+    return padded_batch,mask,E
+
 def pad_collate_fn(batch):
     batch,E=zip(*batch)
     max_len = max(len(sample) for sample in batch)
@@ -110,19 +118,20 @@ class PointCloudDataloader(pl.LightningDataModule):
     one thing to note is the custom standard scaler that works on tensors
    """
 
-    def __init__(self,name,batch_size,max=False):
+    def __init__(self,name,batch_size,max,scaled):
         self.name=name
         self.batch_size=batch_size
         self.max=max
+        self.scaled=scaled
         super().__init__()
 
     def setup(self, stage ):
         # This just sets up the dataloader, nothing particularly important. it reads in a csv, calculates mass and reads out the number particles per jet
         # And adds it to the dataset as variable. The only important thing is that we add noise to zero padded jets
-        self.data=torch.load("/beegfs/desy/user/kaechben/calochallenge/pc_train_{}.pt".format(self.name))
+        self.data=torch.load("/beegfs/desy/user/kaechben/calochallenge/pc_{}train_{}.pt".format("scaled_" if self.scaled else "",self.name))
         self.E=self.data["Egen"]
         self.data=self.data["E_z_alpha_r"]
-        self.val_data=torch.load("/beegfs/desy/user/kaechben/calochallenge/pc_test_{}.pt".format(self.name))
+        self.val_data=torch.load("/beegfs/desy/user/kaechben/calochallenge/pc_{}test_{}.pt".format("scaled_" if self.scaled else "",self.name))
         self.val_E=self.val_data["Egen"]
         self.val_data=self.val_data["E_z_alpha_r"]
         self.scaler= ScalerBase(
@@ -160,11 +169,11 @@ class PointCloudDataloader(pl.LightningDataModule):
             self.val_iterator = BucketBatchSampler(
                                 self.val_data,
                                 batch_size = self.batch_size,
-                                drop_last=True,
+                                drop_last=False,
                                 shuffle=True
                                 )
-        self.train_dl = DataLoader(CustomDataset(self.data,self.E), batch_sampler=self.train_iterator, collate_fn=pad_collate_fn,num_workers=16)
-        self.val_dl = DataLoader(CustomDataset(self.val_data,self.val_E), batch_sampler=self.val_iterator,collate_fn=pad_collate_fn,num_workers=16)
+        self.train_dl = DataLoader(CustomDataset(self.data,self.E), batch_sampler=self.train_iterator, collate_fn=pad_collate_fn if not self.scaled else pad_collate_fn_scaled,num_workers=16)
+        self.val_dl = DataLoader(CustomDataset(self.val_data,self.val_E), batch_sampler=self.val_iterator,collate_fn=pad_collate_fn if not self.scaled else pad_collate_fn_scaled,num_workers=16)
 
 
     def train_dataloader(self):
@@ -175,7 +184,7 @@ class PointCloudDataloader(pl.LightningDataModule):
 
 if __name__=="__main__":
 
-    loader=PointCloudDataloader("big",64,max=False)
+    loader=PointCloudDataloader("big",64,max=False,scaled=True)
     loader.setup("train")
 
     for i in loader.val_dataloader():

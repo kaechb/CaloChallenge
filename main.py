@@ -52,6 +52,7 @@ def train(config, ckpt=False,logger=None):
         model.d_loss_mean=0.5
         model.g_loss_mean=0.5
         model.mean_field_loss=config["mean_field_loss"]
+
         # torch.nn.init.kaiming_normal_(model.dis_net.out.weight)
         # torch.nn.init.kaiming_normal_(model.gen_net.out.weight)
         logger.log_hyperparams({"mean_field_loss":model.mean_field_loss,"ckpt":model.ckpt,"lr_g":config["lr_g"],"lr_d":config["lr_d"]})
@@ -61,11 +62,17 @@ def train(config, ckpt=False,logger=None):
 
 
     # Set up the dataloader
-    data_module = PointCloudDataloader(name=config["name"],batch_size=config["batch_size"],max=config["max"])
-    data_module.setup("validation")
-    model.data_module = data_module
-    model.scaler=data_module.scaler
-    callbacks = [ModelCheckpoint(monitor="weighted w1p", save_top_k=3, mode="min",filename="{epoch}-{w1p:.5f}-{E:.7f}",every_n_epochs=1,),pl.callbacks.LearningRateMonitor(logging_interval="step")]
+    data_module = PointCloudDataloader(name=config["name"],batch_size=config["batch_size"],max=config["max"],scaled=config["scaled"])
+    data_module.setup("train")
+    model.load_datamodule(data_module)
+    minE=10
+    for i in data_module.train_dataloader():
+        if i[0][i[0][:,:,0]!=0][:,0].min()<minE:
+            minE=i[0][:,:,0].min()
+    model.min_E=minE
+    #model.scaler=data_module.scaler
+    callbacks = [ModelCheckpoint(monitor="weighted w1p", save_top_k=3, mode="min",filename="{epoch}-{w1p:.5f}-{E:.7f}",every_n_epochs=1,),pl.callbacks.LearningRateMonitor(logging_interval="step"),
+    ModelCheckpoint(monitor="E", save_top_k=3, mode="min",filename="{epoch}-{w1p:.5f}-{E:.7f}",every_n_epochs=1,)]
     # the sets up the model, with some options that can be set
     trainer = pl.Trainer(
         devices=1,
@@ -89,7 +96,10 @@ def train(config, ckpt=False,logger=None):
     print(trainer.default_root_dir)
     # This calls the fit function which trains the model
     print("This is run: ", logger.experiment.name)
-    trainer.fit(model,datamodule=data_module,)
+    if ckpt:
+        trainer.fit(model,datamodule=data_module,ckpt_path=ckpt)
+    else:
+        trainer.fit(model,datamodule=data_module,)
 
 
 if __name__ == "__main__":
@@ -98,7 +108,6 @@ if __name__ == "__main__":
     config = {
         "batch_size": 128,
         "part_increase": 10,
-        "dropout_gen": 0,
         "dropout": 0.1,
         "gan": "wgan",
         "heads": 2,
@@ -115,7 +124,6 @@ if __name__ == "__main__":
         "num_layers": 2,
         "opt": "Adam",
         "mean_field_loss":True,
-        "act": "leaky",
         "stop_mean":True,
         "ckpt":None,
         "freq":1,
@@ -123,6 +131,7 @@ if __name__ == "__main__":
         "max":False,
         "lambda":0.1,
         "E_loss":True,
+        "scaled":False
     }
     #set up WandB logger
     logger = WandbLogger(
@@ -140,7 +149,7 @@ if __name__ == "__main__":
     print(logger.experiment.dir)
     print("config:", config)
     if config["name"]=="middle" and config["ckpt"]:
-        ckpt="/beegfs/desy/user/kaechben/calochallenge/CaloChallenge/i0jqz0ft/checkpoints/epoch=979-w1p=0.00080.ckpt"
+        ckpt="/beegfs/desy/user/kaechben/calochallenge/CaloChallenge/xj3x18wx/checkpoints/epoch=462-w1p=0.00077-E=0.0002544.ckpt"
     if config["name"]=="big" and config["ckpt"]:
         ckpt="/beegfs/desy/user/kaechben/calochallenge/CaloChallenge/k147sbk0/checkpoints/epoch=249-w1p=0.00144.ckpt"
     #ckpt="/beegfs/desy/user/{}/pf_t/linear/mao7f3bq/checkpoints/epoch=5513-w1m=0.00020.ckpt"

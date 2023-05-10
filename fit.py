@@ -25,6 +25,7 @@ class MF(pl.LightningModule):
     def __init__(self, config, path="/", **kwargs):
         """This initializes the model and its hyperparameters, also some loss functions are defined here"""
         super().__init__()
+        self.save_hyperparameters()
         self.automatic_optimization = False
         self.opt = config["opt"]
         self.lr_g = config["lr_d"]
@@ -33,10 +34,8 @@ class MF(pl.LightningModule):
         self.stop_mean = config["stop_mean"]
         self.gen_net = Gen(**config)
         self.dis_net = Disc(**config)
-        self.true_fpd = None
-        self.w1m_best = 0.2
         self.gp_weight = 10
-        self.save_hyperparameters()
+
         self.relu = torch.nn.ReLU()
         self.dis_net_dict = {"average": False, "model": self.dis_net, "step": 0}
         self.gen_net_dict = {"average": False, "model": self.gen_net, "step": 0}
@@ -45,10 +44,8 @@ class MF(pl.LightningModule):
         else:
             self.mean_field_loss = False
         self.i = 0
-        self.g_loss_mean = 0.5
-        self.d_loss_mean = 0.5
-        self.target_real = torch.ones(config["batch_size"], 1)
-        self.target_fake = torch.zeros(config["batch_size"], 1)
+        self.target_real = torch.ones(config["batch_size"], 1).cuda()
+        self.target_fake = torch.zeros(config["batch_size"], 1).cuda()
         self.mse = nn.MSELoss()
         self.names = ["E", "z", "alpha", "R"]
         if config["name"] == "middle":
@@ -59,13 +56,17 @@ class MF(pl.LightningModule):
             self.num_z = 45
             self.num_alpha = 50
             self.num_R = 18
-        if not hasattr(self, "min_E"):
-            self.min_E = 10000
+
         self.E_loss_mean = 0
         self.E_loss=config["E_loss"]
-        #self.E_loss=config["E_loss"]
-        #self.E_loss_mean = 0
         self.lambda_=config["lambda"]
+        self.d_loss_mean=0
+        self.g_loss_mean=0
+        try:
+            self.centered_gp=config["centered_gp"]
+        except:
+            self.centered_gp=False
+
 
 
     def on_validation_epoch_start(self, *args, **kwargs):
@@ -92,27 +93,42 @@ class MF(pl.LightningModule):
 
     def load_datamodule(self, data_module):
         """needed for lightning training to work, it just sets the dataloader for training and validation"""
+
         self.data_module = data_module
         self.scaler = data_module.scaler
-        self.power_lambda=self.scaler.transfs[0].lambdas[0]
-        self.mean=self.scaler.transfs[0]._scaler.mean_[0]
-        self.scale=self.scaler.transfs[0]._scaler.scale_[0]
+        if not hasattr(self, "scale"):
+            self.power_lambda=self.scaler.transfs[0].lambdas_[0]
+            self.mean=self.scaler.transfs[0]._scaler.mean_[0]
+            self.scale=self.scaler.transfs[0]._scaler.scale_[0]
+        print("scaler values:",self.scale,self.mean,self.power_lambda)
 
+
+    def transform(self,x):
+        x=(x**self.power_lambda-1)/self.power_lambda
+        return (x-self.mean)/self.scale
+
+    def inverse_transform(self,x):
+        return ((x*self.scale+self.mean)*self.power_lambda+1)**(1/self.power_lambda)
 
 
     def sampleandscale(self, batch, mask, cond, scale=False):
         """Samples from the generator and optionally scales the output back to the original scale"""
         mask = mask.bool()
         with torch.no_grad():
-            z = torch.normal(torch.zeros(batch.shape[0], batch.shape[1], batch.shape[2], device=batch.device), torch.ones(batch.shape[0], batch.shape[1], batch.shape[2], device=batch.device))
+            if True:
+                z = torch.normal(torch.zeros(batch.shape[0], batch.shape[1], batch.shape[2], device=batch.device), torch.ones(batch.shape[0], batch.shape[1], batch.shape[2], device=batch.device))
+            else:
+                z = torch.cat((torch.normal(torch.zeros(batch.shape[0], batch.shape[1], batch.shape[2]-1, device=batch.device), torch.ones(batch.shape[0], batch.shape[1], batch.shape[2]-1, device=batch.device)),torch.rand(batch.shape[0], batch.shape[1], 1, device=batch.device)), dim=-1)
         z[mask] = 0  # Since mean field is initialized by sum, we need to set the masked values to zero
         fake = self.gen_net(z, mask=mask, cond=cond, weight=False)
         fake[:, :, 0] = torch.nn.functional.relu(fake[:, :, 0] - self.min_E) + self.min_E
         if scale:
             fake_scaled = self.scaler.inverse_transform(fake)
-
             fake_scaled[mask] = 0  # set the masked values to zero
-            return fake_scaled
+            if self.data_module.scaled:
+                return fake_scaled, self.scaler.inverse_transform(batch)
+            else:
+                return fake_scaled
         else:
             fake[mask] = 0  # set the masked values to zero
             return fake
@@ -136,7 +152,11 @@ class MF(pl.LightningModule):
         # the square root, so manually calculate norm and add epsilon
         gradients_norm = torch.sqrt(torch.sum(gradients**2, dim=1) + 1e-12)
         # Return gradient penalty
-        return self.gp_weight * ((gradients_norm - 1) ** 2).mean()
+        if not self.centered_gp:
+            gp=self.gp_weight * ((gradients_norm - 1) ** 2).mean()
+        else:
+            gp=self.gp_weight * ((gradients_norm ) ** 2).mean()
+        return gp
 
     def configure_optimizers(self):
         """Sets the optimizer and the learning rate scheduler"""
@@ -178,77 +198,77 @@ class MF(pl.LightningModule):
             target_fake = torch.zeros_like(pred_fake)
             target_real = torch.ones_like(pred_real)
             d_loss = self.mse(pred_fake, target_fake).mean() + self.mse(pred_real, target_real).mean()
-
             self.d_loss_mean = d_loss.detach() * 0.01 + 0.99 * self.d_loss_mean
         elif self.gan == "hinge":
             d_loss = F.relu(1 - pred_real).mean() + F.relu(1 + pred_fake).mean()
 
             self.d_loss_mean = d_loss.detach() * 0.01 + 0.99 * self.d_loss_mean
+        elif self.centered_gp:
+            d_loss=nn.BCEWithLogitsLoss()(pred_real.reshape(-1),self.target_real[:len(pred_real)].reshape(-1))+nn.BCEWithLogitsLoss()(pred_fake.reshape(-1),self.target_fake[:len(pred_fake)].reshape(-1))
+            self.d_loss_mean = d_loss.item() * 0.01 + 0.99 * self.d_loss_mean
+            gp = self._gradient_penalty(batch, fake, mask=mask, cond=cond)
+            self._log_dict["Training/gp"] = gp
         else:
             gp = self._gradient_penalty(batch, fake, mask=mask, cond=cond)
             d_loss = -pred_real.mean() + pred_fake.mean()
-
             self.d_loss_mean = d_loss.detach() * 0.01 + 0.99 * self.d_loss_mean
             d_loss += gp
             self._log_dict["Training/gp"] = gp
-        #if self.E_loss:
-            #E_loss = self.lambda_ * self.mse(E.reshape(-1), cond[:, 0].reshape(-1))# + self.mse(Efake.reshape(-1), cond[:, 0].reshape(-1))
-            #self.E_loss_mean = self.E_loss_mean * 0.99 + E_loss.detach().item()
-            #self._log_dict["Training/E_loss"] = self.E_loss_mean
-            #d_loss += E_loss
         self.manual_backward(d_loss)
         opt_d.step()
-        self._log_dict["Training/lr_d"] = opt_d.param_groups[0]["lr"]
         self._log_dict["Training/d_loss"] = self.d_loss_mean
         return mean_field
 
     def train_gen(self, batch, mask, opt_g, cond, mean_field=None):
         """Trains the generator"""
-        opt_g.zero_grad()
-        self.gen_net.zero_grad()
         fake = self.sampleandscale(batch=batch, mask=mask, cond=cond)
-        if mask is not None:
-            fake = fake * (~mask).unsqueeze(-1)
         if mean_field is not None:
             pred, mean_field_gen = self.dis_net(fake, mask=mask, weight=False, cond=cond)
             assert mean_field.shape == mean_field_gen.shape
             mean_field = self.mse(mean_field_gen, mean_field.detach()).mean()
             self._log_dict["Training/mean_field"] = mean_field
         else:
-            pred = self.dis_net(fake, mask=mask, weight=False, cond=cond)
+            pred,_ = self.dis_net(fake, mask=mask, weight=False, cond=cond)
         pred = pred.reshape(-1)
         if self.gan == "ls":
             target = torch.ones_like(pred)
             g_loss = 0.5 * self.mse(pred, target).mean()
+        elif self.centered_gp:
+            g_loss = nn.BCEWithLogitsLoss()(pred.reshape(-1), self.target_real[:len(pred)].reshape(-1))
         else:
             g_loss = -pred.mean()
-        if g_loss != g_loss or mean_field != mean_field:
-            return None
         if self.g_loss_mean is None:
             self.g_loss_mean = g_loss
-        self.g_loss_mean = g_loss.detach() * 0.01 + 0.99 * self.g_loss_mean
+        self.g_loss_mean = g_loss.item() * 0.01 + 0.99 * self.g_loss_mean
         if self.mean_field_loss:
             g_loss += mean_field
         if self.E_loss:
-            response_fake=(((fake[:,:,0]*sqrt(self.std)+self.mean)*self.power_lambda+1)**(1/self.power_lambda)).sum(1).reshape(-1)/(cond[:,0]+10).exp()
-            response_real=(((batch[:,:,0]*sqrt(self.std)+self.mean)*self.power_lambda+1)**(1/self.power_lambda)).sum(1).reshape(-1)/(cond[:,0]+10).exp()
-            E_loss =  self.mse(response_real,response_fake)
-            self.E_loss_mean = self.E_loss_mean * 0.99 + E_loss.detach().item()
-            self._log_dict["Training/E_loss"] =self.lambda_ * self.E_loss_mean
-            g_loss += E_loss
+            if not self.data_module.scaled:
+                response_fake=self.inverse_transform(fake[:,:,0]).sum(1).reshape(-1)/(cond[:,0]+10).exp()
+                response_real=self.inverse_transform(batch[:,:,0]).sum(1).reshape(-1)/(cond[:,0]+10).exp()
+                E_loss =  self.mse(response_real,response_fake)
+                self.E_loss_mean = self.E_loss_mean * 0.99 + 0.01*E_loss.detach().item()
+                self._log_dict["Training/E_loss"] = self.E_loss_mean
+                g_loss += self.lambda_ *E_loss
+            else:
+
+                response_fake=self.inverse_transform(fake[:,:,0]).sum(1).reshape(-1)/self.inverse_transform(cond[:,0])
+                response_real=self.inverse_transform(batch[:,:,0]).sum(1).reshape(-1)/self.inverse_transform(cond[:,0])
+                E_loss =  self.mse(response_real,response_fake)
+                # E_loss =torch.clamp(F.relu(E_loss-response_real.std()),max=1)
+                self.E_loss_mean = self.E_loss_mean * 0.99 + 0.01*E_loss.detach().item()
+                self._log_dict["Training/E_loss"] = self.E_loss_mean
+                g_loss += self.lambda_ *E_loss
+        opt_g.zero_grad()
+        self.gen_net.zero_grad()
         self.manual_backward(g_loss)
         opt_g.step()
-
-        self._log_dict["Training/lr_g"] = opt_g.param_groups[0]["lr"]
         self._log_dict["Training/g_loss"] = self.g_loss_mean
 
     def training_step(self, batch):
         """simplistic training step, train discriminator and generator"""
         batch, mask, cond = batch[0], batch[1].bool(), batch[2]
         cond = torch.cat((cond.reshape(-1, 1), (~mask).float().sum(1).reshape(-1, 1)), dim=-1).float()
-        if self.current_epoch < 1:
-            if batch[:, :, 0].min() < self.min_E:
-                self.min_E = batch[:, :, 0].min()
         if not hasattr(self, "freq"):
             self.freq = 1
         self._log_dict = {}
@@ -256,10 +276,8 @@ class MF(pl.LightningModule):
             self.mean_field_loss = False
         if len(batch) == 1:
             return None
-
         opt_d, opt_g = self.optimizers()
         sched_d, sched_g = self.lr_schedulers()
-        ### GAN PART
         mean_field = self.train_disc(batch=batch, mask=mask, opt_d=opt_d, cond=cond)
         if self.global_step % (self.freq) == 0:
             self.train_gen(batch=batch, mask=mask, opt_g=opt_g, cond=cond, mean_field=mean_field)
@@ -271,19 +289,24 @@ class MF(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         """This calculates some important metrics on the hold out set (checking for overtraining)"""
+        if self.global_step==0:
+            self.power_lambda=self.scaler.transfs[0].lambdas_[0]
+            self.mean=self.scaler.transfs[0]._scaler.mean_[0]
+            self.scale=self.scaler.transfs[0]._scaler.scale_[0]
+
         self._log_dict = {}
 
         batch, mask, cond = batch[0], batch[1].bool(), batch[2]
         cond = torch.cat((cond.reshape(-1, 1), (~mask).float().sum(1).reshape(-1, 1)), dim=-1).float()
+        # if not self.data_module.scaled:
+        #     cond=self.transform(cond)
         self.w1ps = []
-        if batch[:, :, 0].min() < self.min_E:
-            self.min_E = batch[:, :, 0].min()
-        with torch.no_grad():
-            fake = self.sampleandscale(batch=batch, mask=mask, cond=cond, scale=True)
-            # fake=fake.clamp_(min=self.min_E,out=fake)
 
-            # scores_real = self.dis_net(batch, mask=mask[:len(mask)], weight=False)[0]
-            # scores_fake = self.dis_net(f, mask=mask, weight=False )[0]
+        with torch.no_grad():
+            if self.data_module.scaled:
+                fake,batch = self.sampleandscale(batch=batch, mask=mask, cond=cond, scale=True)
+            else:
+                fake = self.sampleandscale(batch=batch, mask=mask, cond=cond, scale=True)
             unpadded_fake = fake[~mask].cpu().numpy()
             unpadded_real = batch[~mask].cpu().numpy()
             for i in range(4):

@@ -1,8 +1,8 @@
 program: main.py
 method: random
-name: "search all with conditioning, only wgan"
+name: " ONLY BIG"
 metric:
-  name: w1m
+  name: min_w1p
   goal: minimize
 parameters:
   mean_field_loss:
@@ -12,21 +12,21 @@ parameters:
   opt:
     values: ["AdamW"]
   batch_size:
-    values: [64,128]
+    values: [128]
   gan:
     values: ["wgan"]
   ckpt:
     values: [False]
   dropout:
-    values: [0.1,.2]
+    values: [.2]
   lr_d:
-    values: [0.0001,0.00005]
+    values: [0.00005]
   lambda:
-    values: [0.1,0.00001,0.0000001]
+    values: [0.1,1,10]
   num_layers_gen:
-    values: [3,4,5]
+    values: [3,4,5,]
   l_dim:
-    values: [8,16]
+    values: [16]
   hidden:
     values: [32,48]
   hidden_gen:
@@ -38,12 +38,16 @@ parameters:
   heads_gen:
     values: [8,16]
   name:
-    values: ["middle","big"]
+    values: ["big"]
   freq:
     values: [1]
   max:
-    values: [True,False]
+    values: [False]
   E_loss:
+    values: [True]
+  scaled:
+    values: [False]
+  centered_gp:
     values: [True,False]
 
   # lr_d:

@@ -50,6 +50,7 @@ class Gen(nn.Module):
     def forward(self, x,mask,cond,weight=False):
         x = self.act(self.embbed(x))
         cond=cond.unsqueeze(1)
+        #x=F.glu(torch.cat((x,self.cond(cond[:,:,:1]).expand(-1,x.shape[1],-1).clone()),dim=-1))
         if weight:
             ws=[]
         x_cls = x.mean(1).unsqueeze(1).clone()
