@@ -57,7 +57,7 @@ import joblib
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import PowerTransformer, StandardScaler, MinMaxScaler
 from tqdm import tqdm
-
+import mplhep as hep
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler
@@ -101,31 +101,33 @@ class TPReLU(nn.Module):
     def __repr__(self):
         return self.__class__.__name__ + ' (' \
             + str(self.num_parameters) + ')'
+
+
+
 class EqualLR:
-    def __init__(self, name):
-        self.name = name
+  def __init__(self, name):
+      self.name = name
 
-    def compute_weight(self, module):
-        weight = getattr(module, self.name + '_orig')
-        fan_in = weight.data.size(1) * weight.data[0][0].numel()
+  def compute_weight(self, module):
+      weight = getattr(module, self.name + '_orig')
+      fan_in = weight.data.size(1) * weight.data[0][0].numel()
 
-        return weight * sqrt(2 / fan_in)
+      return weight * math.sqrt(2 / fan_in)
 
-    @staticmethod
-    def apply(module, name):
-        fn = EqualLR(name)
+  @staticmethod
+  def apply(module, name):
+      fn = EqualLR(name)
 
-        weight = getattr(module, name)
-        del module._parameters[name]
-        module.register_parameter(name + '_orig', nn.Parameter(weight.data))
-        module.register_forward_pre_hook(fn)
+      weight = getattr(module, name)    #1
+      del module._parameters[name]
+      module.register_parameter(name + '_orig', nn.Parameter(weight.data))
+      module.register_forward_pre_hook(fn)    #2
 
-        return fn
+      return fn
 
-    def __call__(self, module, input):
-        weight = self.compute_weight(module)
-        setattr(module, self.name, weight)
-
+  def __call__(self, module, input):    #3
+      weight = self.compute_weight(module)    #4
+      setattr(module, self.name, weight)
 
 def equal_lr(module, name='weight'):
     EqualLR.apply(module, name)
@@ -144,7 +146,7 @@ class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):
         return [base_lr * lr_factor for base_lr in self.base_lrs]
 
     def get_lr_factor(self, epoch):
-        lr_factor = 0.5 * (1 + np.cos(np.pi * min(self.max_num_iters*0.99,epoch) / self.max_num_iters))
+        lr_factor = 0.5 * (1 + np.cos(np.pi * epoch / self.max_num_iters)/(max(int(epoch/self.max_num_iters),1)))
         if epoch <= self.warmup:
             lr_factor *= epoch * 1.0 / self.warmup
         return lr_factor
@@ -298,26 +300,25 @@ class plotting_point_cloud():
         self.summary.log_image("{}ratio".format("weighted " if weighted else "unweighted "), [fig],self.step)
         plt.close()
 
-    def plot_scores(self,pred_real,pred_fake,train,step):
-        fig, ax = plt.subplots()
+    def plot_scores(self,pred_real,pred_fake,):
+        fig=plt.figure()
+        hep.histplot(pred_real.to_numpy()[0], bins=pred_real.axes.edges[0], label="real", histtype='fill', color='blue', alpha=0.3)
 
-        bins=30#np.linspace(0,1,10 if train else 100)
-        ax.hist(pred_fake, label="Generated", bins=bins, histtype="step")
-        if pred_real.any():
-            ax.hist(pred_real, label="Ground Truth", bins=bins, histtype="stepfilled",alpha=self.alpha)
-        ax.legend()
-        ax.patches[0].set_lw(2)
+        # Plot the second histogram, filled with 'red'
+        hep.histplot(pred_fake.to_numpy()[0], bins=pred_fake.axes.edges[0], label="fake", histtype='step', color='red', alpha=1)
+
         plt.ylabel("Counts")
         plt.xlabel("Critic Score")
+        plt.legend()
         if self.summary:
             plt.tight_layout()
-            if pred_real.any():
-                self.summary.log_image("class_train" if train else "class_val", [fig],self.step)
-            else:
-                self.summary.log_image("class_gen", [fig],self.step)
+            # if pred_real.any():
+            #     self.summary.log_image("class_train" if train else "class_val", [fig],self.step)
+            # else:
+            self.summary.log_image("scores", [fig],self.step)
             plt.close()
         else:
-            plt.savefig("plots/scores_"+str(train)+".pdf",format="pdf")
+            plt.savefig("plots/scores.pdf",format="pdf")
             plt.show()
 
 

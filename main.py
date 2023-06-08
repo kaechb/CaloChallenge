@@ -20,19 +20,16 @@ from scipy import stats
 from torch.nn import functional as FF
 import torch
 # from pytorch_lightning.plugins.environments import SLURMEnvironment
-from helpers import *
+from helpers import EqualLR
 from dataloader import PointCloudDataloader
-from fit import MF
+from fit import MDMA
 from tqdm import tqdm
+
+from preprocess import DQ, DQKDE, Cart, LogTransformer, ScalerBase
 # from plotting import plotting
 
 
-# from comet_ml import Experiment
-def lcm(a, b):
-    return (a * b) // math.gcd(a, b)
-
-
-def train(config, ckpt=False,logger=None):
+def train(config,data_module, ckpt=False,logger=None):
     torch.set_float32_matmul_precision('medium' )
     # This function is a wrapper for the hyperparameter optimization module called ray
     # Its parameters hyperopt and ckpt are there for convenience
@@ -41,36 +38,32 @@ def train(config, ckpt=False,logger=None):
     # Callbacks to use during the training, we  checkpoint our models
 
     if not ckpt:
-        model = MF( config=config, **config)
+        model = MDMA( **config)
         model.continue_training=False
         model.ckpt=None
     else:
         print("model loaded")
         print("ckpt: ",ckpt)
-        model=MF.load_from_checkpoint(ckpt)
+        model=MDMA.load_from_checkpoint(ckpt)
         model.ckpt=ckpt
         model.d_loss_mean=0.5
         model.g_loss_mean=0.5
         model.mean_field_loss=config["mean_field_loss"]
-
-        # torch.nn.init.kaiming_normal_(model.dis_net.out.weight)
-        # torch.nn.init.kaiming_normal_(model.gen_net.out.weight)
-        logger.log_hyperparams({"mean_field_loss":model.mean_field_loss,"ckpt":model.ckpt,"lr_g":config["lr_g"],"lr_d":config["lr_d"]})
-
-        # Replace the existing scheduler in the Trainer
-
-
-
+        if config["name"]=="big":
+            model.num_z = 45
+            model.num_alpha = 50
+            model.num_R = 18
+        model.E_loss=True
     # Set up the dataloader
-    data_module = PointCloudDataloader(name=config["name"],batch_size=config["batch_size"],max=config["max"],scaled=config["scaled"])
-    data_module.setup("train")
-    model.load_datamodule(data_module)
     minE=10
+    maxE=-10
     for i in data_module.train_dataloader():
         if i[0][i[0][:,:,0]!=0][:,0].min()<minE:
-            minE=i[0][:,:,0].min()
-    model.min_E=minE
-    #model.scaler=data_module.scaler
+            model.min_E=i[0][:,:,0].min()
+        if i[0][i[0][:,:,0]!=0][:,0].max()>maxE:
+            model.max_E=i[0][:,:,0].max()
+    model.load_datamodule(data_module)
+    model.head_start=0
     callbacks = [ModelCheckpoint(monitor="weighted w1p", save_top_k=3, mode="min",filename="{epoch}-{w1p:.5f}-{E:.7f}",every_n_epochs=1,),pl.callbacks.LearningRateMonitor(logging_interval="step"),
     ModelCheckpoint(monitor="E", save_top_k=3, mode="min",filename="{epoch}-{w1p:.5f}-{E:.7f}",every_n_epochs=1,)]
     # the sets up the model, with some options that can be set
@@ -81,18 +74,14 @@ def train(config, ckpt=False,logger=None):
         log_every_n_steps=100,
         max_epochs=20000,
         callbacks=callbacks,
-        # progress_bar_refresh_rate=0,
         val_check_interval=1000,
         check_val_every_n_epoch=None,
         num_sanity_val_steps=1,
         enable_progress_bar=False,
         default_root_dir="/beegfs/desy/user/{}/calochallenge".format(os.environ["USER"]),
-        # reload_dataloaders_every_n_epochs=0,#,config["val_check"] if not config["smart_batching"] else 0,
-        #profiler="pytorch"
+
     )
-
-
-
+    torch.autograd.set_detect_anomaly(True)
     print(trainer.default_root_dir)
     # This calls the fit function which trains the model
     print("This is run: ", logger.experiment.name)
@@ -107,8 +96,7 @@ if __name__ == "__main__":
 
     config = {
         "batch_size": 128,
-        "part_increase": 10,
-        "dropout": 0.1,
+        "dropout": 0.,
         "gan": "wgan",
         "heads": 2,
         "heads_gen": 16,
@@ -125,34 +113,45 @@ if __name__ == "__main__":
         "opt": "Adam",
         "mean_field_loss":True,
         "stop_mean":True,
-        "ckpt":None,
+        "ckpt":False,
         "freq":1,
         "name":"middle",
-        "max":False,
+        "max":True,
         "lambda":0.1,
         "E_loss":True,
-        "scaled":False
+        "cartesian":True,
+        "N":1,
+        "sched":True,
+        "cond_dim":2,
+        "scale_E":True,
+        "equallr":False,
+        "spectralnorm":False,
+        "noise":False,
+
     }
     #set up WandB logger
     logger = WandbLogger(
         save_dir="/beegfs/desy/user/{}/calochallenge".format(os.environ["USER"]),
         sync_tensorboard=False,
-        project="CaloChallenge",
-    )
+        project="CaloChallenge2")
     #best function that exists in ml
     logger.experiment.log_code(".")
     # update config with hyperparameters from sweep
     if len(logger.experiment.config.keys()) > 0:
         config.update(**logger.experiment.config)
     config["l_dim_gen"]=config["l_dim"]
-
     print(logger.experiment.dir)
     print("config:", config)
-    if config["name"]=="middle" and config["ckpt"]:
-        ckpt="/beegfs/desy/user/kaechben/calochallenge/CaloChallenge/xj3x18wx/checkpoints/epoch=462-w1p=0.00077-E=0.0002544.ckpt"
-    if config["name"]=="big" and config["ckpt"]:
-        ckpt="/beegfs/desy/user/kaechben/calochallenge/CaloChallenge/k147sbk0/checkpoints/epoch=249-w1p=0.00144.ckpt"
+    # if not config["ckpt"]:
+    #     ckpt=False
+    # if config["name"]=="middle":
+    #     ckpt="/beegfs/desy/user/kaechben/calochallenge/CaloChallenge/xj3x18wx/checkpoints/epoch=462-w1p=0.00077-E=0.0002544.ckpt"
+    # if config["name"]=="big":
+    #     ckpt="/beegfs/desy/user/kaechben/calochallenge/CaloChallenge/jx98l14b/checkpoints/epoch=300-w1p=0.00097-E=0.0000770.ckpt"
     #ckpt="/beegfs/desy/user/{}/pf_t/linear/mao7f3bq/checkpoints/epoch=5513-w1m=0.00020.ckpt"
-    if not config["ckpt"]:
-        ckpt=None
-    train(config,logger=logger,ckpt=ckpt)  # load_ckpt=ckptroot=root,
+    data_module = PointCloudDataloader(name=config["name"],batch_size=config["batch_size"],max=config["max"],cartesian=config["cartesian"],scale_E=config["scale_E"])
+    data_module.setup("fit")
+    minE=10
+    maxE=-10
+
+    train(config,data_module,logger=logger,ckpt=False)  # load_ckpt=ckptroot=root,
